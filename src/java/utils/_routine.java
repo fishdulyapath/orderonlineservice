@@ -160,7 +160,7 @@ public class _routine {
                 __dbConnectUrl.append("/").append(databaseName.toLowerCase());
             }
             Class.forName(__dbClassName).newInstance();
-            System.out.println(__dbConnectUrl.toString() + ", " + _global._databaseUserCode + ", " + _global._databaseUserPassword);
+//            System.out.println(__dbConnectUrl.toString() + ", " + _global._databaseUserCode + ", " + _global._databaseUserPassword);
             __conn = DriverManager.getConnection(__dbConnectUrl.toString(), this._databaseUserCode, this._databaseUserPassword);
             try ( // PostgreSql
                     Statement __stmt = __conn.createStatement()) {
