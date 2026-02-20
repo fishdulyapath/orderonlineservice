@@ -581,7 +581,7 @@ public class OrderOnlineService {
                             + "    ELSE '0' "
                             + "  END AS price "
                             + "FROM ic_inventory_price_formula  "
-                            + "WHERE ic_code = '" + __rs1.getString("item_code") + "'  and sale_type = " + strSaleType + ";";
+                            + "WHERE ic_code = '" + __rs1.getString("item_code") + "'  and sale_type in (0," + strSaleType + ");";
 
                     Statement __stmtPrice = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
                     ResultSet __rsPrice = __stmtPrice.executeQuery(__strQUERYPrice);
@@ -2435,7 +2435,7 @@ public class OrderOnlineService {
                             + "    ELSE '0' "
                             + "  END AS price "
                             + "FROM ic_inventory_price_formula  "
-                            + "WHERE ic_code = '" + __rs1.getString("ic_code") + "'  and sale_type = " + strSaleType + ";";
+                            + "WHERE ic_code = '" + __rs1.getString("ic_code") + "'  and sale_type in (0," + strSaleType + ");";
 
                     Statement __stmtPrice = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
                     ResultSet __rsPrice = __stmtPrice.executeQuery(__strQUERYPrice);
@@ -2628,7 +2628,7 @@ public class OrderOnlineService {
                             + "    ELSE '0' "
                             + "  END AS price "
                             + "FROM ic_inventory_price_formula  "
-                            + "WHERE ic_code = '" + __rs1.getString("ic_code") + "'  and sale_type = " + strSaleType + ";";
+                            + "WHERE ic_code = '" + __rs1.getString("ic_code") + "'  and sale_type in (0," + strSaleType + ");";
 
                     Statement __stmtPrice = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
                     ResultSet __rsPrice = __stmtPrice.executeQuery(__strQUERYPrice);
@@ -2741,7 +2741,7 @@ public class OrderOnlineService {
                         + "    ELSE NULL "
                         + "  END AS price "
                         + "FROM ic_inventory_price_formula  "
-                        + "WHERE ic_code = '" + __rs1.getString("ic_code") + "' and unit_code = '" + __rs1.getString("unit_code") + "' and sale_type = " + strSaleType + ";";
+                        + "WHERE ic_code = '" + __rs1.getString("ic_code") + "' and unit_code = '" + __rs1.getString("unit_code") + "' and sale_type in (0," + strSaleType + ");";
                 Statement __stmtPrice = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
                 ResultSet __rsPrice = __stmtPrice.executeQuery(__strQUERYPrice);
 
