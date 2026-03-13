@@ -1518,7 +1518,7 @@ public class OrderOnlineService {
                         }
                         obj.put("wh_code", __rs1.getString("wh_code"));
                         obj.put("wh_name", __rs1.getString("wh_name"));
-                        obj.put("sale_type", sale_type );
+                        obj.put("sale_type", sale_type);
 
                         obj.put("doc_no", __rs1.getString("doc_no"));
                         obj.put("doc_date", __rs1.getString("doc_date"));
@@ -1561,7 +1561,7 @@ public class OrderOnlineService {
                         }
                         obj.put("wh_code", __rs1.getString("wh_code"));
                         obj.put("wh_name", __rs1.getString("wh_name"));
-                        obj.put("sale_type", sale_type );
+                        obj.put("sale_type", sale_type);
 
                         obj.put("doc_no", __rs1.getString("doc_no"));
                         obj.put("doc_date", __rs1.getString("doc_date"));
@@ -1602,7 +1602,7 @@ public class OrderOnlineService {
                     }
                     obj.put("wh_code", __rs1.getString("wh_code"));
                     obj.put("wh_name", __rs1.getString("wh_name"));
-                    obj.put("sale_type", sale_type );
+                    obj.put("sale_type", sale_type);
 
                     obj.put("doc_no", __rs1.getString("doc_no"));
                     obj.put("doc_date", __rs1.getString("doc_date"));
@@ -2199,7 +2199,7 @@ public class OrderOnlineService {
 
             Statement __stmt1;
             ResultSet __rs1;
-           // System.out.println(__strQUERY1);
+            // System.out.println(__strQUERY1);
             __stmt1 = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
             __rs1 = __stmt1.executeQuery(__strQUERY1 + " offset " + strOffset + " limit " + strLimit);
 
@@ -2237,6 +2237,1204 @@ public class OrderOnlineService {
         } catch (Exception ex) {
             return Response.status(400).entity("{ERROR: " + ex.getMessage() + "}").build();
         }
+        return Response.ok(String.valueOf(__objResponse), MediaType.APPLICATION_JSON).build();
+    }
+
+    @GET
+    @Path("/getBalanceListLite")
+    public Response getBalanceListLite(
+            @QueryParam("search") String strSearch,
+            @QueryParam("warehouse") String strWarehouse,
+            @QueryParam("shelf_from") String strShelfFrom,
+            @QueryParam("shelf_to") String strShelfTo,
+            @QueryParam("groupsub") String strGroupSub,
+            @QueryParam("groupsub2") String strGroupSub2,
+            @QueryParam("brand") String strBrand,
+            @QueryParam("model") String strModel,
+            @QueryParam("category2") String strCategory,
+            @QueryParam("format") String strFormat,
+            @QueryParam("sort") String strSort,
+            @QueryParam("sort_col") String strSortCol,
+            @QueryParam("offset") String strOffset,
+            @QueryParam("limit") String strLimit
+    ) {
+        String strProvider = "DATA";
+        String strDatabaseName = "data2";
+        JSONObject __objResponse = new JSONObject();
+        __objResponse.put("success", false);
+
+        Connection __conn = null;
+        try {
+            _routine __routine = new _routine();
+            __conn = __routine._connect(strDatabaseName, _global.FILE_CONFIG(strProvider));
+
+            int intOffset = 0;
+            int intLimit = 30;
+            try {
+                intOffset = Integer.parseInt(strOffset);
+            } catch (Exception ignored) {
+            }
+            try {
+                intLimit = Integer.parseInt(strLimit);
+            } catch (Exception ignored) {
+            }
+
+            String __itemCode = (strSearch != null && !strSearch.trim().isEmpty()) ? strSearch.trim() : "";
+            String __warehouse = (strWarehouse != null && !strWarehouse.trim().isEmpty()) ? strWarehouse.trim() : "";
+            String __shelfFrom = (strShelfFrom != null && !strShelfFrom.trim().isEmpty()) ? strShelfFrom.trim() : "";
+            String __shelfTo = (strShelfTo != null && !strShelfTo.trim().isEmpty()) ? strShelfTo.trim() : "";
+            String __groupSub = (strGroupSub != null && !strGroupSub.trim().isEmpty()) ? strGroupSub.trim() : "";
+            String __groupSub2 = (strGroupSub2 != null && !strGroupSub2.trim().isEmpty()) ? strGroupSub2.trim() : "";
+            String __brand = (strBrand != null && !strBrand.trim().isEmpty()) ? strBrand.trim() : "";
+            String __model = (strModel != null && !strModel.trim().isEmpty()) ? strModel.trim() : "";
+            String __category = (strCategory != null && !strCategory.trim().isEmpty()) ? strCategory.trim() : "";
+            String __format = (strFormat != null && !strFormat.trim().isEmpty()) ? strFormat.trim() : "";
+            String __sort = (strSort != null && !strSort.trim().isEmpty()) ? strSort.trim() : "asc";
+            String __sortCol = (strSortCol != null && !strSortCol.trim().isEmpty()) ? strSortCol.trim() : "";
+
+            Integer flag = 0;
+            StringBuilder __strQuery = new StringBuilder();
+            StringBuilder __strIcQuerySub = new StringBuilder();
+            StringBuilder __strWarehouseQuerySub = new StringBuilder();
+            StringBuilder __strShelfQuerySub = new StringBuilder();
+
+            __strIcQuerySub.append("select string_agg(ic_inventory.code,',') as code from ic_inventory where 1=1 ");
+
+            // flag=0: query เบาๆ จาก ic_inventory ตรงๆ ไม่มี price subquery
+            __strQuery.append("select ");
+            __strQuery.append("  ic_inventory.code         as item_code, ");
+            __strQuery.append("  ic_inventory.name_1       as item_name, ");
+            __strQuery.append("  ic_inventory.unit_standard as unit_code, ");
+            __strQuery.append("  '' as shelf_list, ");
+            __strQuery.append("  '' as warehouse_list ");
+            __strQuery.append("from ic_inventory ");
+            __strQuery.append("where 1=1 and ic_inventory.balance_qty > 0 ");
+
+            // ---------- filters ----------
+            if (!__itemCode.isEmpty()) {
+                String kw = __itemCode.replace(" ", "%");
+                __strQuery.append(" and (lower(ic_inventory.code) like lower('%" + kw + "%') or lower(ic_inventory.name_1) like lower('%" + kw + "%')) ");
+                __strIcQuerySub.append(" and (lower(ic_inventory.code) like lower('%" + kw + "%') or lower(ic_inventory.name_1) like lower('%" + kw + "%')) ");
+            }
+            if (!__groupSub.isEmpty()) {
+                String[] vals = __groupSub.split(",");
+                __strQuery.append(" and ic_inventory.group_sub in ('" + String.join("','", vals) + "') ");
+                __strIcQuerySub.append(" and ic_inventory.group_sub in ('" + String.join("','", vals) + "') ");
+            }
+            if (!__groupSub2.isEmpty()) {
+                String[] vals = __groupSub2.split(",");
+                __strQuery.append(" and ic_inventory.group_sub2 in ('" + String.join("','", vals) + "') ");
+                __strIcQuerySub.append(" and ic_inventory.group_sub2 in ('" + String.join("','", vals) + "') ");
+            }
+            if (!__brand.isEmpty()) {
+                String[] vals = __brand.split(",");
+                __strQuery.append(" and ic_inventory.item_brand in ('" + String.join("','", vals) + "') ");
+                __strIcQuerySub.append(" and ic_inventory.item_brand in ('" + String.join("','", vals) + "') ");
+            }
+            if (!__model.isEmpty()) {
+                String[] vals = __model.split(",");
+                __strQuery.append(" and ic_inventory.item_model in ('" + String.join("','", vals) + "') ");
+                __strIcQuerySub.append(" and ic_inventory.item_model in ('" + String.join("','", vals) + "') ");
+            }
+            if (!__category.isEmpty()) {
+                String[] vals = __category.split(",");
+                __strQuery.append(" and ic_inventory.item_category in ('" + String.join("','", vals) + "') ");
+                __strIcQuerySub.append(" and ic_inventory.item_category in ('" + String.join("','", vals) + "') ");
+            }
+            if (!__format.isEmpty()) {
+                String[] vals = __format.split(",");
+                __strQuery.append(" and ic_inventory.item_pattern in ('" + String.join("','", vals) + "') ");
+                __strIcQuerySub.append(" and ic_inventory.item_pattern in ('" + String.join("','", vals) + "') ");
+            }
+
+            // ---------- warehouse / shelf flag ----------
+            if (!__warehouse.isEmpty()) {
+                __strWarehouseQuerySub.append(__warehouse);
+                flag = 1;
+            }
+            if (!__shelfFrom.isEmpty() && __shelfTo.isEmpty()) {
+                __strShelfQuerySub.append(__shelfFrom);
+                flag = 1;
+            } else if (!__shelfFrom.isEmpty() && !__shelfTo.isEmpty()) {
+                __strShelfQuerySub.append("select string_agg(code,',') as code from ic_shelf where code between '")
+                        .append(__shelfFrom).append("' and '").append(__shelfTo).append("'");
+                flag = 2;
+            }
+
+            if (flag == 2) {
+                Statement __stmtShelf = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+                ResultSet __shelfList = __stmtShelf.executeQuery(__strShelfQuerySub.toString());
+                __strShelfQuerySub = new StringBuilder();
+                while (__shelfList.next()) {
+                    __strShelfQuerySub.append(__shelfList.getString("code"));
+                }
+                __shelfList.close();
+                __stmtShelf.close();
+            }
+
+            if (flag != 0) {
+                Statement __stmtIc = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+                ResultSet __icList = __stmtIc.executeQuery(__strIcQuerySub.toString());
+                __strIcQuerySub = new StringBuilder();
+                while (__icList.next()) {
+                    __strIcQuerySub.append(__icList.getString("code"));
+                }
+                __icList.close();
+                __stmtIc.close();
+
+                __strQuery = new StringBuilder();
+                __strQuery.append("select ");
+                __strQuery.append("  stk.ic_code      as item_code, ");
+                __strQuery.append("  stk.ic_name      as item_name, ");
+                __strQuery.append("  stk.ic_unit_code as unit_code, ");
+                __strQuery.append("  '@shelf_code@' as shelf_list, ");
+                __strQuery.append("  '@wh_code@'    as warehouse_list, ");
+                __strQuery.append("  sum(balance_qty) as balance_qty ");
+                __strQuery.append("from sml_ic_function_stock_balance_warehouse_location(current_date, '@ic_code@', '@wh_code@', '@shelf_code@') as stk ");
+                __strQuery.append("where stk.balance_qty > 0 ");
+                __strQuery.append("group by stk.ic_code, stk.ic_name, stk.ic_unit_code ");
+
+                __strQuery = new StringBuilder(
+                        __strQuery.toString()
+                                .replace("@ic_code@", __strIcQuerySub.toString())
+                                .replace("@wh_code@", __strWarehouseQuerySub.toString())
+                                .replace("@shelf_code@", __strShelfQuerySub.toString())
+                );
+
+                if (__sortCol.isEmpty()) {
+                    __strQuery.append(" order by stk.ic_code ").append(__sort).append(" ");
+                } else {
+                    __strQuery.append(" order by ").append(__sortCol).append(" ").append(__sort).append(" ");
+                }
+            } else {
+                if (__sortCol.isEmpty()) {
+                    __strQuery.append(" order by ic_inventory.code ").append(__sort).append(" ");
+                } else {
+                    __strQuery.append(" order by ").append(__sortCol).append(" ").append(__sort).append(" ");
+                }
+            }
+
+            // ---------- execute count ----------
+            String __strCountQuery = "select count(*) as xcount from (" + __strQuery.toString() + ") as cnt";
+            Statement __stmtCount = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+            ResultSet __rsCount = __stmtCount.executeQuery(__strCountQuery);
+
+            JSONObject objPage = new JSONObject();
+            if (__rsCount.next()) {
+                int total = __rsCount.getInt("xcount");
+                objPage.put("total", total);
+                objPage.put("perPage", intLimit);
+                objPage.put("page", intLimit > 0 ? intOffset / intLimit : 0);
+                objPage.put("totalPage", intLimit > 0 ? (int) Math.ceil((double) total / intLimit) : 1);
+            }
+            __rsCount.close();
+            __stmtCount.close();
+
+            // ---------- execute data ----------
+            String __strPaginationQuery = " OFFSET " + intOffset + " LIMIT " + intLimit;
+            Statement __stmtData = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+            ResultSet __rsData = __stmtData.executeQuery(__strQuery.toString() + __strPaginationQuery);
+
+            JSONArray __jsonArr = new JSONArray();
+            while (__rsData.next()) {
+                JSONObject obj = new JSONObject();
+                obj.put("item_code", __rsData.getString("item_code"));
+                obj.put("item_name", __rsData.getString("item_name"));
+                obj.put("unit_code", __rsData.getString("unit_code"));
+                obj.put("shelf_list", __rsData.getString("shelf_list"));
+                obj.put("warehouse_list", __rsData.getString("warehouse_list"));
+                // ไม่ query ราคา/stock → ส่ง placeholder
+                obj.put("price", "");
+                obj.put("balance_qty", "");
+                obj.put("year_weak", "");
+                obj.put("update_date", "");
+                __jsonArr.put(obj);
+            }
+            __rsData.close();
+            __stmtData.close();
+
+            __objResponse.put("success", true);
+            __objResponse.put("data", __jsonArr);
+            __objResponse.put("pagination", objPage);
+
+        } catch (Exception ex) {
+            return Response.status(400).entity("{\"error\": \"" + ex.getMessage() + "\"}").build();
+        } finally {
+            if (__conn != null) {
+                try {
+                    __conn.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return Response.ok(String.valueOf(__objResponse), MediaType.APPLICATION_JSON).build();
+    }
+
+    // ============================================================
+    // getBalanceItemPriceBatch — lazy load ราคา+stock สำหรับ item_codes batch
+    // ============================================================
+    @GET
+    @Path("/getBalanceItemPriceBatch")
+    public Response getBalanceItemPriceBatch(
+            @QueryParam("item_codes") String strItemCodes,
+            @QueryParam("cust_code") String strCustCode,
+            @QueryParam("warehouse") String strWarehouse,
+            @QueryParam("shelf_list") String strShelfList
+    ) {
+        String strProvider = "DATA";
+        String strDatabaseName = "data2";
+        JSONObject __objResponse = new JSONObject();
+        __objResponse.put("success", false);
+
+        Connection __conn = null;
+        try {
+            _routine __routine = new _routine();
+            __conn = __routine._connect(strDatabaseName, _global.FILE_CONFIG(strProvider));
+
+            String custCode = (strCustCode != null && !strCustCode.trim().isEmpty()) ? strCustCode.trim() : "";
+            String warehouse = (strWarehouse != null && !strWarehouse.trim().isEmpty()) ? strWarehouse.trim() : "";
+            String shelfList = (strShelfList != null && !strShelfList.trim().isEmpty()) ? strShelfList.trim() : "";
+
+            String[] itemCodes = (strItemCodes != null && !strItemCodes.trim().isEmpty())
+                    ? strItemCodes.trim().split(",") : new String[0];
+
+            JSONArray __jsonArr = new JSONArray();
+            String saleType = "2";
+
+            for (String rawCode : itemCodes) {
+                String itemCode = rawCode.trim();
+                if (itemCode.isEmpty()) {
+                    continue;
+                }
+
+                JSONObject obj = new JSONObject();
+                obj.put("item_code", itemCode);
+
+                // --- balance_qty ---
+                String balanceQty = "0";
+                String yearWeak = "";
+                String unitCode = "";
+
+                // ดึง unit_standard
+                String qryUnit = "SELECT unit_standard, balance_qty FROM ic_inventory WHERE code = '" + itemCode + "'";
+                Statement stmtU = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+                ResultSet rsU = stmtU.executeQuery(qryUnit);
+                if (rsU.next()) {
+                    unitCode = rsU.getString("unit_standard");
+                    balanceQty = rsU.getString("balance_qty");
+                }
+                rsU.close();
+                stmtU.close();
+
+                // ถ้ามี warehouse/shelf → ใช้ function stock balance
+                if (!warehouse.isEmpty() || !shelfList.isEmpty()) {
+                    String qryStk = "SELECT sum(balance_qty) as balance_qty, "
+                            + "(select location from sml_ic_function_stock_balance_warehouse_location(current_date, '" + itemCode + "', '" + warehouse + "', '" + shelfList + "') "
+                            + " where balance_qty > 0 order by location asc limit 1) as year_weak "
+                            + "FROM sml_ic_function_stock_balance_warehouse_location(current_date, '" + itemCode + "', '" + warehouse + "', '" + shelfList + "') "
+                            + "WHERE balance_qty > 0";
+                    Statement stmtStk = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+                    ResultSet rsStk = stmtStk.executeQuery(qryStk);
+                    if (rsStk.next()) {
+                        String sq = rsStk.getString("balance_qty");
+                        if (sq != null) {
+                            balanceQty = sq;
+                        }
+                        String yw = rsStk.getString("year_weak");
+                        if (yw != null) {
+                            yearWeak = yw;
+                        }
+                    }
+                    rsStk.close();
+                    stmtStk.close();
+                } else {
+                    // ไม่มี warehouse filter → หา year_weak (location) จาก function
+                    String qryLoc = "SELECT location FROM sml_ic_function_stock_balance_warehouse_location(current_date, '" + itemCode + "', '', '') "
+                            + "WHERE balance_qty > 0 ORDER BY location ASC LIMIT 1";
+                    Statement stmtLoc = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+                    ResultSet rsLoc = stmtLoc.executeQuery(qryLoc);
+                    if (rsLoc.next()) {
+                        String loc = rsLoc.getString("location");
+                        if (loc != null) {
+                            yearWeak = loc;
+                        }
+                    }
+                    rsLoc.close();
+                    stmtLoc.close();
+                }
+
+                // --- price ---
+                String price = "0";
+                String location = yearWeak;
+
+                // step 1: location 4 หลัก → ic_inventory_price_formula
+                if (location != null && location.trim().matches("\\d{4}")) {
+                    String year = location.substring(0, 2);
+                    String qryPrice = "SELECT "
+                            + "CASE (RIGHT(EXTRACT(YEAR FROM NOW())::int::text, 2)::int - '" + year + "'::int) "
+                            + "  WHEN 0 THEN '0' "
+                            + "  WHEN 1 THEN coalesce(price_1,'0') "
+                            + "  WHEN 2 THEN coalesce(price_2,'0') "
+                            + "  WHEN 3 THEN coalesce(price_3,'0') "
+                            + "  WHEN 4 THEN coalesce(price_4,'0') "
+                            + "  ELSE '0' END AS price "
+                            + "FROM ic_inventory_price_formula "
+                            + "WHERE ic_code = '" + itemCode + "' AND sale_type IN (0," + saleType + ") LIMIT 1";
+                    Statement stmtP = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+                    ResultSet rsP = stmtP.executeQuery(qryPrice);
+                    if (rsP.next()) {
+                        price = rsP.getString("price");
+                    }
+                    rsP.close();
+                    stmtP.close();
+                }
+
+                // step 2: fallback getProductPriceLocal
+                if ("0".equals(price) && !unitCode.isEmpty()) {
+                    JSONObject prices = getProductPriceLocal(itemCode, unitCode, "1", custCode, saleType);
+                    JSONArray pricesArr = prices.optJSONArray("data");
+                    if (pricesArr != null && pricesArr.length() > 0) {
+                        JSONObject priceObj = pricesArr.optJSONObject(0);
+                        price = priceObj != null ? priceObj.optString("price", "0") : "0";
+                    }
+                }
+
+                // --- update_date ---
+                String updateDate = "";
+                String qryDate = "SELECT create_date_time_now FROM ic_inventory_price "
+                        + "WHERE ic_code = '" + itemCode + "' AND status = 1 AND price_type = 2 AND price_mode = 1 "
+                        + "AND current_date BETWEEN from_date AND to_date ORDER BY create_date_time_now DESC LIMIT 1";
+                Statement stmtD = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+                ResultSet rsD = stmtD.executeQuery(qryDate);
+                if (rsD.next()) {
+                    updateDate = rsD.getString("create_date_time_now");
+                }
+                rsD.close();
+                stmtD.close();
+
+                obj.put("unit_code", unitCode);
+                obj.put("balance_qty", String.format("%,.0f", Float.parseFloat(balanceQty != null ? balanceQty : "0")));
+                obj.put("year_weak", yearWeak);
+                obj.put("price", price);
+                obj.put("update_date", updateDate);
+
+                __jsonArr.put(obj);
+            }
+
+            __objResponse.put("success", true);
+            __objResponse.put("data", __jsonArr);
+
+        } catch (Exception ex) {
+            return Response.status(400).entity("{\"error\": \"" + ex.getMessage() + "\"}").build();
+        } finally {
+            if (__conn != null) {
+                try {
+                    __conn.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return Response.ok(String.valueOf(__objResponse), MediaType.APPLICATION_JSON).build();
+    }
+
+    @GET
+    @Path("/getBalanceDetailPrice")
+    public Response getBalanceDetailPrice(
+            @QueryParam("item_code") String strItemCode,
+            @QueryParam("location") String strLocation,
+            @QueryParam("unit_code") String strUnitCode,
+            @QueryParam("cust_code") String strCustCode,
+            @QueryParam("sale_type") String strSaleType
+    ) {
+        String strProvider = "DATA";
+        String strDatabaseName = "data2";
+        JSONObject __objResponse = new JSONObject();
+        __objResponse.put("success", false);
+
+        Connection __conn = null;
+        try {
+            _routine __routine = new _routine();
+            __conn = __routine._connect(strDatabaseName, _global.FILE_CONFIG(strProvider));
+
+            String itemCode = (strItemCode != null && !strItemCode.trim().isEmpty()) ? strItemCode.trim() : "";
+            String location = (strLocation != null && !strLocation.trim().isEmpty()) ? strLocation.trim() : "";
+            String unitCode = (strUnitCode != null && !strUnitCode.trim().isEmpty()) ? strUnitCode.trim() : "";
+            String custCode = (strCustCode != null && !strCustCode.trim().isEmpty()) ? strCustCode.trim() : "";
+            String saleType =  "2";
+
+            String price = "0";
+
+            // step 1: ถ้า location เป็นตัวเลข 4 หลัก → หาราคาจาก ic_inventory_price_formula
+            if (location.matches("\\d{4}")) {
+                String year = location.substring(0, 2);
+                String qryPrice = "SELECT "
+                        + "CASE (RIGHT(EXTRACT(YEAR FROM NOW())::int::text, 2)::int - '" + year + "'::int) "
+                        + "  WHEN 0 THEN '0' "
+                        + "  WHEN 1 THEN coalesce(price_1,'0') "
+                        + "  WHEN 2 THEN coalesce(price_2,'0') "
+                        + "  WHEN 3 THEN coalesce(price_3,'0') "
+                        + "  WHEN 4 THEN coalesce(price_4,'0') "
+                        + "  ELSE '0' END AS price "
+                        + "FROM ic_inventory_price_formula "
+                        + "WHERE ic_code = '" + itemCode + "' AND sale_type IN (0," + saleType + ") LIMIT 1";
+                Statement stmtP = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+                ResultSet rsP = stmtP.executeQuery(qryPrice);
+                if (rsP.next()) {
+                    String p = rsP.getString("price");
+                    if (p != null && !p.trim().isEmpty()) {
+                        price = p;
+                    }
+                }
+                rsP.close();
+                stmtP.close();
+            }
+
+            // step 2: fallback getProductPriceLocal
+            if ("0".equals(price) && !unitCode.isEmpty()) {
+                JSONObject prices = getProductPriceLocal(itemCode, unitCode, "1", custCode, saleType);
+                JSONArray pricesArr = prices.optJSONArray("data");
+                if (pricesArr != null && pricesArr.length() > 0) {
+                    JSONObject priceObj = pricesArr.optJSONObject(0);
+                    price = priceObj != null ? priceObj.optString("price", "0") : "0";
+                }
+            }
+
+            __objResponse.put("success", true);
+            __objResponse.put("item_code", itemCode);
+            __objResponse.put("location", location);
+            __objResponse.put("price", price);
+
+        } catch (Exception ex) {
+            return Response.status(400).entity("{\"error\": \"" + ex.getMessage() + "\"}").build();
+        } finally {
+            if (__conn != null) {
+                try {
+                    __conn.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return Response.ok(String.valueOf(__objResponse), MediaType.APPLICATION_JSON).build();
+    }
+
+    @GET
+    @Path("/getBalanceList")
+    public Response getBalanceList(
+            @QueryParam("cust_code") String strCustCode,
+            @QueryParam("search") String strSearch,
+            @QueryParam("warehouse") String strWarehouse,
+            @QueryParam("shelf_from") String strShelfFrom,
+            @QueryParam("shelf_to") String strShelfTo,
+            @QueryParam("groupsub") String strGroupSub,
+            @QueryParam("groupsub2") String strGroupSub2,
+            @QueryParam("brand") String strBrand,
+            @QueryParam("model") String strModel,
+            @QueryParam("category2") String strCategory,
+            @QueryParam("format") String strFormat,
+            @QueryParam("sort") String strSort,
+            @QueryParam("sort_col") String strSortCol,
+            @QueryParam("offset") String strOffset,
+            @QueryParam("limit") String strLimit
+    ) {
+        String strProvider = "DATA";
+        String strDatabaseName = "data2";
+        JSONObject __objResponse = new JSONObject();
+        __objResponse.put("success", false);
+
+        Connection __conn = null;
+        try {
+            _routine __routine = new _routine();
+            __conn = __routine._connect(strDatabaseName, _global.FILE_CONFIG(strProvider));
+
+            // --- parse & default ---
+            int intOffset = 0;
+            int intLimit = 20;
+            try {
+                intOffset = Integer.parseInt(strOffset);
+            } catch (Exception ignored) {
+            }
+            try {
+                intLimit = Integer.parseInt(strLimit);
+            } catch (Exception ignored) {
+            }
+
+            String __itemCode = (strSearch != null && !strSearch.trim().isEmpty()) ? strSearch.trim() : "";
+            String __warehouse = (strWarehouse != null && !strWarehouse.trim().isEmpty()) ? strWarehouse.trim() : "";
+            String __shelfFrom = (strShelfFrom != null && !strShelfFrom.trim().isEmpty()) ? strShelfFrom.trim() : "";
+            String __shelfTo = (strShelfTo != null && !strShelfTo.trim().isEmpty()) ? strShelfTo.trim() : "";
+            String __groupSub = (strGroupSub != null && !strGroupSub.trim().isEmpty()) ? strGroupSub.trim() : "";
+            String __groupSub2 = (strGroupSub2 != null && !strGroupSub2.trim().isEmpty()) ? strGroupSub2.trim() : "";
+            String __brand = (strBrand != null && !strBrand.trim().isEmpty()) ? strBrand.trim() : "";
+            String __model = (strModel != null && !strModel.trim().isEmpty()) ? strModel.trim() : "";
+            String __category = (strCategory != null && !strCategory.trim().isEmpty()) ? strCategory.trim() : "";
+            String __format = (strFormat != null && !strFormat.trim().isEmpty()) ? strFormat.trim() : "";
+            String __sort = (strSort != null && !strSort.trim().isEmpty()) ? strSort.trim() : "";
+            String __sortCol = (strSortCol != null && !strSortCol.trim().isEmpty()) ? strSortCol.trim() : "";
+
+            Integer flag = 0;
+
+            String __strPaginationQuery = " OFFSET " + intOffset + " LIMIT " + intLimit;
+
+            StringBuilder __strQuery = new StringBuilder();
+            StringBuilder __strIcQuerySub = new StringBuilder();
+            StringBuilder __strWarehouseQuerySub = new StringBuilder();
+            StringBuilder __strShelfQuerySub = new StringBuilder();
+
+            // ---------- base ic subquery ----------
+            __strIcQuerySub.append("select string_agg(ic_inventory.code,',') as code from ic_inventory where 1=1 ");
+
+            // ---------- base main query (flag=0 path) ----------
+            __strQuery.append("select ");
+            __strQuery.append("  ic_inventory.code         as item_code, ");
+            __strQuery.append("  ic_inventory.name_1       as item_name, ");
+            __strQuery.append("  '' as shelf_list, ");
+            __strQuery.append("  '' as warehouse_list, ");
+            __strQuery.append("  ic_inventory.balance_qty, ");
+            __strQuery.append("  ic_inventory.unit_standard as unit_code, ");
+            __strQuery.append("  coalesce((select ic_inventory_price.sale_price2 from ic_inventory_price ");
+            __strQuery.append("    where ic_inventory_price.cust_group_1 = 'GR02' ");
+            __strQuery.append("      and ic_inventory_price.sale_type  = 0 ");
+            __strQuery.append("      and ic_inventory_price.status     = 1 ");
+            __strQuery.append("      and ic_inventory_price.price_type = 2 ");
+            __strQuery.append("      and ic_inventory_price.price_mode = 1 ");
+            __strQuery.append("      and current_date between ic_inventory_price.from_date and ic_inventory_price.to_date ");
+            __strQuery.append("      and ic_inventory_price.ic_code = ic_inventory.code limit 1), '0') as price, ");
+            __strQuery.append("  coalesce((select ic_inventory_price.create_date_time_now from ic_inventory_price ");
+            __strQuery.append("    where ic_inventory_price.cust_group_1 = 'GR02' ");
+            __strQuery.append("      and ic_inventory_price.sale_type  = 0 ");
+            __strQuery.append("      and ic_inventory_price.status     = 1 ");
+            __strQuery.append("      and ic_inventory_price.price_type = 2 ");
+            __strQuery.append("      and ic_inventory_price.price_mode = 1 ");
+            __strQuery.append("      and current_date between ic_inventory_price.from_date and ic_inventory_price.to_date ");
+            __strQuery.append("      and ic_inventory_price.ic_code = ic_inventory.code limit 1), now()) as update_date, ");
+            __strQuery.append("  coalesce((select location ");
+            __strQuery.append("    from sml_ic_function_stock_balance_warehouse_location(current_date, ic_inventory.code, '', '') ");
+            __strQuery.append("    where balance_qty > 0 order by location asc limit 1), '') as year_weak ");
+            __strQuery.append("from ic_inventory ");
+            __strQuery.append("where 1=1 and ic_inventory.balance_qty > 0 ");
+
+            // ---------- filters ----------
+            if (!__itemCode.isEmpty()) {
+                String kw = __itemCode.replace(" ", "%");
+                __strQuery.append(" and (lower(ic_inventory.code) like lower('%" + kw + "%') or lower(ic_inventory.name_1) like lower('%" + kw + "%')) ");
+                __strIcQuerySub.append(" and (lower(ic_inventory.code) like lower('%" + kw + "%') or lower(ic_inventory.name_1) like lower('%" + kw + "%')) ");
+            }
+
+            if (!__groupSub.isEmpty()) {
+                String[] vals = __groupSub.split(",");
+                __strQuery.append(" and ic_inventory.group_sub in ('" + String.join("','", vals) + "') ");
+                __strIcQuerySub.append(" and ic_inventory.group_sub in ('" + String.join("','", vals) + "') ");
+            }
+
+            if (!__groupSub2.isEmpty()) {
+                String[] vals = __groupSub2.split(",");
+                __strQuery.append(" and ic_inventory.group_sub2 in ('" + String.join("','", vals) + "') ");
+                __strIcQuerySub.append(" and ic_inventory.group_sub2 in ('" + String.join("','", vals) + "') ");
+            }
+
+            if (!__brand.isEmpty()) {
+                String[] vals = __brand.split(",");
+                __strQuery.append(" and ic_inventory.item_brand in ('" + String.join("','", vals) + "') ");
+                __strIcQuerySub.append(" and ic_inventory.item_brand in ('" + String.join("','", vals) + "') ");
+            }
+
+            if (!__model.isEmpty()) {
+                String[] vals = __model.split(",");
+                __strQuery.append(" and ic_inventory.item_model in ('" + String.join("','", vals) + "') ");
+                __strIcQuerySub.append(" and ic_inventory.item_model in ('" + String.join("','", vals) + "') ");
+            }
+
+            if (!__category.isEmpty()) {
+                String[] vals = __category.split(",");
+                __strQuery.append(" and ic_inventory.item_category in ('" + String.join("','", vals) + "') ");
+                __strIcQuerySub.append(" and ic_inventory.item_category in ('" + String.join("','", vals) + "') ");
+            }
+
+            if (!__format.isEmpty()) {
+                String[] vals = __format.split(",");
+                __strQuery.append(" and ic_inventory.item_pattern in ('" + String.join("','", vals) + "') ");
+                __strIcQuerySub.append(" and ic_inventory.item_pattern in ('" + String.join("','", vals) + "') ");
+            }
+
+            // ---------- warehouse / shelf flag ----------
+            if (!__warehouse.isEmpty()) {
+                __strWarehouseQuerySub.append(__warehouse);
+                flag = 1;
+            }
+
+            if (!__shelfFrom.isEmpty() && __shelfTo.isEmpty()) {
+                __strShelfQuerySub.append(__shelfFrom);
+                flag = 1;
+            } else if (!__shelfFrom.isEmpty() && !__shelfTo.isEmpty()) {
+                __strShelfQuerySub.append("select string_agg(code,',') as code from ic_shelf where code between '")
+                        .append(__shelfFrom).append("' and '").append(__shelfTo).append("'");
+                flag = 2;
+            }
+
+            // ---------- resolve shelf range (flag=2) ----------
+            if (flag == 2) {
+                Statement __stmtShelf = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+                ResultSet __shelfList = __stmtShelf.executeQuery(__strShelfQuerySub.toString());
+                __strShelfQuerySub = new StringBuilder();
+                while (__shelfList.next()) {
+                    __strShelfQuerySub.append(__shelfList.getString("code"));
+                }
+                __shelfList.close();
+                __stmtShelf.close();
+            }
+
+            // ---------- resolve ic list + rebuild query (flag != 0) ----------
+            if (flag != 0) {
+                System.out.println("__strIcQuerySub " + __strIcQuerySub);
+                Statement __stmtIc = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+                ResultSet __icList = __stmtIc.executeQuery(__strIcQuerySub.toString());
+                __strIcQuerySub = new StringBuilder();
+                while (__icList.next()) {
+                    __strIcQuerySub.append(__icList.getString("code"));
+                }
+                __icList.close();
+                __stmtIc.close();
+
+                __strQuery = new StringBuilder();
+                __strQuery.append("select ");
+                __strQuery.append("  stk.ic_code      as item_code, ");
+                __strQuery.append("  stk.ic_name      as item_name, ");
+                __strQuery.append("  stk.ic_unit_code as unit_code, ");
+                __strQuery.append("  coalesce((select ic_inventory_price.sale_price2 from ic_inventory_price ");
+                __strQuery.append("    where ic_inventory_price.cust_group_1 = 'GR02' ");
+                __strQuery.append("      and ic_inventory_price.sale_type  = 0 ");
+                __strQuery.append("      and ic_inventory_price.status     = 1 ");
+                __strQuery.append("      and ic_inventory_price.price_type = 2 ");
+                __strQuery.append("      and ic_inventory_price.price_mode = 1 ");
+                __strQuery.append("      and current_date between ic_inventory_price.from_date and ic_inventory_price.to_date ");
+                __strQuery.append("      and ic_inventory_price.ic_code = stk.ic_code limit 1), '0') as price, ");
+                __strQuery.append("  coalesce((select ic_inventory_price.create_date_time_now from ic_inventory_price ");
+                __strQuery.append("    where ic_inventory_price.cust_group_1 = 'GR02' ");
+                __strQuery.append("      and ic_inventory_price.sale_type  = 0 ");
+                __strQuery.append("      and ic_inventory_price.status     = 1 ");
+                __strQuery.append("      and ic_inventory_price.price_type = 2 ");
+                __strQuery.append("      and ic_inventory_price.price_mode = 1 ");
+                __strQuery.append("      and current_date between ic_inventory_price.from_date and ic_inventory_price.to_date ");
+                __strQuery.append("      and ic_inventory_price.ic_code = stk.ic_code limit 1), now()) as update_date, ");
+                __strQuery.append("  (select location from sml_ic_function_stock_balance_warehouse_location(current_date, stk.ic_code, '@wh_code@', '@shelf_code@') ");
+                __strQuery.append("    where balance_qty > 0 order by location asc limit 1) as year_weak, ");
+                __strQuery.append("  '@shelf_code@' as shelf_list, ");
+                __strQuery.append("  '@wh_code@'    as warehouse_list, ");
+                __strQuery.append("  sum(balance_qty) as balance_qty ");
+                __strQuery.append("from sml_ic_function_stock_balance_warehouse_location(current_date, '@ic_code@', '@wh_code@', '@shelf_code@') as stk ");
+                __strQuery.append("where stk.balance_qty > 0 ");
+                __strQuery.append("group by stk.ic_code, stk.ic_name, stk.ic_unit_code ");
+
+                // replace placeholders
+                __strQuery = new StringBuilder(
+                        __strQuery.toString()
+                                .replace("@ic_code@", __strIcQuerySub.toString())
+                                .replace("@wh_code@", __strWarehouseQuerySub.toString())
+                                .replace("@shelf_code@", __strShelfQuerySub.toString())
+                );
+
+                if (__sortCol.isEmpty()) {
+                    __strQuery.append(" order by stk.ic_code ").append(__sort).append(" ");
+                } else {
+                    __strQuery.append(" order by ").append(__sortCol).append(" ").append(__sort).append(" ");
+                }
+
+            } else {
+                // flag = 0 (no warehouse/shelf filter)
+                if (__sortCol.isEmpty()) {
+                    __strQuery.append(" order by ic_inventory.code ").append(__sort).append(" ");
+                } else {
+                    __strQuery.append(" order by ").append(__sortCol).append(" ").append(__sort).append(" ");
+                }
+            }
+
+            System.out.println("__strQuery " + __strQuery.toString() + __strPaginationQuery);
+
+            // ---------- execute data ----------
+            Statement __stmtData = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+            ResultSet __rsData = __stmtData.executeQuery(__strQuery.toString() + __strPaginationQuery);
+
+            JSONArray __jsonArr = new JSONArray();
+            while (__rsData.next()) {
+                JSONObject obj = new JSONObject();
+                obj.put("item_code", __rsData.getString("item_code"));
+                obj.put("item_name", __rsData.getString("item_name"));
+                obj.put("balance_qty", String.format("%,.0f", Float.parseFloat(__rsData.getString("balance_qty"))));
+                obj.put("unit_code", __rsData.getString("unit_code"));
+                obj.put("year_weak", __rsData.getString("year_weak"));
+                obj.put("shelf_list", __rsData.getString("shelf_list"));
+                obj.put("warehouse_list", __rsData.getString("warehouse_list"));
+                obj.put("update_date", __rsData.getString("update_date"));
+
+                // ---------- price logic (เหมือน getProductStock) ----------
+                String location = __rsData.getString("year_weak");   // year_weak = location code
+                String unitCode = __rsData.getString("unit_code");
+                String itemCode = __rsData.getString("item_code");
+                String saleType = "1";
+                String custCode = (strCustCode != null && !strCustCode.trim().isEmpty()) ? strCustCode.trim() : "";
+
+                String price = "0";
+
+                // step 1: ถ้า location เป็นตัวเลข 4 หลัก → หาราคาจาก ic_inventory_price_formula
+                if (location != null && location.trim().matches("\\d{4}")) {
+                    String year = location.substring(0, 2);
+                    String __strQUERYPrice
+                            = "SELECT ic_code, unit_code, "
+                            + "  CASE (RIGHT(EXTRACT(YEAR FROM NOW())::int::text, 2)::int - '" + year + "'::int) "
+                            + "    WHEN 0 THEN '0' "
+                            + "    WHEN 1 THEN coalesce(price_1,'0') "
+                            + "    WHEN 2 THEN coalesce(price_2,'0') "
+                            + "    WHEN 3 THEN coalesce(price_3,'0') "
+                            + "    WHEN 4 THEN coalesce(price_4,'0') "
+                            + "    ELSE '0' "
+                            + "  END AS price "
+                            + "FROM ic_inventory_price_formula "
+                            + "WHERE ic_code = '" + itemCode + "' AND sale_type IN (0," + saleType + ")";
+
+                    Statement __stmtPrice = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+                    ResultSet __rsPrice = __stmtPrice.executeQuery(__strQUERYPrice);
+                    if (__rsPrice.next()) {
+                        price = __rsPrice.getString("price");
+                    }
+                    __rsPrice.close();
+                    __stmtPrice.close();
+                }
+
+                // step 2: ถ้ายังได้ "0" → fallback getProductPriceLocal
+                if ("0".equals(price)) {
+                    JSONObject prices = getProductPriceLocal(itemCode, unitCode, "1", custCode, saleType);
+                    JSONArray pricesArr = prices.optJSONArray("data");
+                    if (pricesArr != null && pricesArr.length() > 0) {
+                        JSONObject priceObj = pricesArr.optJSONObject(0);
+                        price = priceObj != null ? priceObj.optString("price", "0") : "0";
+                    }
+                }
+
+                obj.put("price", price);
+                __jsonArr.put(obj);
+            }
+            __rsData.close();
+            __stmtData.close();
+
+            // ---------- execute count ----------
+            String __strCountQuery = "select count(*) as xcount from (" + __strQuery.toString() + ") as cnt";
+            Statement __stmtCount = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+            ResultSet __rsCount = __stmtCount.executeQuery(__strCountQuery);
+
+            JSONObject objPage = new JSONObject();
+            if (__rsCount.next()) {
+                int total = __rsCount.getInt("xcount");
+                objPage.put("total", total);
+                objPage.put("perPage", intLimit);
+                objPage.put("page", intLimit > 0 ? intOffset / intLimit : 0);
+                objPage.put("totalPage", intLimit > 0 ? (int) Math.ceil((double) total / intLimit) : 1);
+            }
+            __rsCount.close();
+            __stmtCount.close();
+
+            __objResponse.put("success", true);
+            __objResponse.put("data", __jsonArr);
+            __objResponse.put("pagination", objPage);
+
+        } catch (Exception ex) {
+            return Response.status(400).entity("{\"error\": \"" + ex.getMessage() + "\"}").build();
+        } finally {
+            if (__conn != null) {
+                try {
+                    __conn.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+
+        return Response.ok(String.valueOf(__objResponse), MediaType.APPLICATION_JSON).build();
+    }
+
+    // ============================================================
+// helper: execute query → JSONArray
+// ============================================================
+    private JSONArray executeQuery(Connection conn, String sql) throws Exception {
+        Statement stmt = conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+        ResultSet rs = stmt.executeQuery(sql);
+        JSONArray arr = new JSONArray();
+        ResultSetMetaData meta = rs.getMetaData();
+        int colCount = meta.getColumnCount();
+        while (rs.next()) {
+            JSONObject row = new JSONObject();
+            for (int i = 1; i <= colCount; i++) {
+                row.put(meta.getColumnLabel(i), rs.getString(i) != null ? rs.getString(i) : "");
+            }
+            arr.put(row);
+        }
+        rs.close();
+        stmt.close();
+        return arr;
+    }
+
+// ============================================================
+// helper: สร้าง connection (ใช้ร่วมกันทุก endpoint)
+// ============================================================
+    private Connection getConnection() throws Exception {
+        _routine __routine = new _routine();
+        return __routine._connect("data2", _global.FILE_CONFIG("DATA"));
+    }
+
+// ============================================================
+// 1. Item List
+// ============================================================
+    @GET
+    @Path("/getSearchItemList")
+    public Response getSearchItemList() {
+        JSONObject __objResponse = new JSONObject();
+        __objResponse.put("success", false);
+        Connection __conn = null;
+        try {
+            __conn = getConnection();
+            String sql
+                    = "SELECT code, name_1, balance_qty, book_out_qty, accrued_out_qty, accrued_in_qty, unit_standard, "
+                    + "  COALESCE(sign_code, '') AS sign_code, "
+                    + "  COALESCE((SELECT name_1 FROM ic_unit WHERE ic_unit.code = ic_inventory.unit_standard), '') AS unit_name "
+                    + "FROM ic_inventory";
+            __objResponse.put("data", executeQuery(__conn, sql));
+            __objResponse.put("success", true);
+        } catch (Exception ex) {
+            return Response.status(400).entity("{\"error\": \"" + ex.getMessage() + "\"}").build();
+        } finally {
+            if (__conn != null) {
+                try {
+                    __conn.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return Response.ok(String.valueOf(__objResponse), MediaType.APPLICATION_JSON).build();
+    }
+
+// ============================================================
+// 2. Warehouse List
+// ============================================================
+    @GET
+    @Path("/getSearchWarehouseList")
+    public Response getSearchWarehouseList() {
+        JSONObject __objResponse = new JSONObject();
+        __objResponse.put("success", false);
+        Connection __conn = null;
+        try {
+            __conn = getConnection();
+            __objResponse.put("data", executeQuery(__conn, "SELECT code, name_1 FROM ic_warehouse"));
+            __objResponse.put("success", true);
+        } catch (Exception ex) {
+            return Response.status(400).entity("{\"error\": \"" + ex.getMessage() + "\"}").build();
+        } finally {
+            if (__conn != null) {
+                try {
+                    __conn.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return Response.ok(String.valueOf(__objResponse), MediaType.APPLICATION_JSON).build();
+    }
+
+// ============================================================
+// 3. Shelf List
+// ============================================================
+    @GET
+    @Path("/getSearchShelfList")
+    public Response getSearchShelfList() {
+        JSONObject __objResponse = new JSONObject();
+        __objResponse.put("success", false);
+        Connection __conn = null;
+        try {
+            __conn = getConnection();
+            __objResponse.put("data", executeQuery(__conn, "SELECT code, name_1 FROM ic_shelf group by code,name_1"));
+            __objResponse.put("success", true);
+        } catch (Exception ex) {
+            return Response.status(400).entity("{\"error\": \"" + ex.getMessage() + "\"}").build();
+        } finally {
+            if (__conn != null) {
+                try {
+                    __conn.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return Response.ok(String.valueOf(__objResponse), MediaType.APPLICATION_JSON).build();
+    }
+
+// ============================================================
+// 4. Group Sub List
+// ============================================================
+    @GET
+    @Path("/getSearchGroupSubList")
+    public Response getSearchGroupSubList() {
+        JSONObject __objResponse = new JSONObject();
+        __objResponse.put("success", false);
+        Connection __conn = null;
+        try {
+            __conn = getConnection();
+            __objResponse.put("data", executeQuery(__conn, "SELECT code, name_1 FROM ic_group_sub"));
+            __objResponse.put("success", true);
+        } catch (Exception ex) {
+            return Response.status(400).entity("{\"error\": \"" + ex.getMessage() + "\"}").build();
+        } finally {
+            if (__conn != null) {
+                try {
+                    __conn.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return Response.ok(String.valueOf(__objResponse), MediaType.APPLICATION_JSON).build();
+    }
+
+// ============================================================
+// 5. Group Sub2 List
+// ============================================================
+    @GET
+    @Path("/getSearchGroupSub2List")
+    public Response getSearchGroupSub2List() {
+        JSONObject __objResponse = new JSONObject();
+        __objResponse.put("success", false);
+        Connection __conn = null;
+        try {
+            __conn = getConnection();
+            __objResponse.put("data", executeQuery(__conn, "SELECT code, name_1 FROM ic_group_sub2"));
+            __objResponse.put("success", true);
+        } catch (Exception ex) {
+            return Response.status(400).entity("{\"error\": \"" + ex.getMessage() + "\"}").build();
+        } finally {
+            if (__conn != null) {
+                try {
+                    __conn.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return Response.ok(String.valueOf(__objResponse), MediaType.APPLICATION_JSON).build();
+    }
+
+// ============================================================
+// 6. Brand List
+// ============================================================
+    @GET
+    @Path("/getSearchBrandList")
+    public Response getSearchBrandList() {
+        JSONObject __objResponse = new JSONObject();
+        __objResponse.put("success", false);
+        Connection __conn = null;
+        try {
+            __conn = getConnection();
+            __objResponse.put("data", executeQuery(__conn, "SELECT code, name_1 FROM ic_brand"));
+            __objResponse.put("success", true);
+        } catch (Exception ex) {
+            return Response.status(400).entity("{\"error\": \"" + ex.getMessage() + "\"}").build();
+        } finally {
+            if (__conn != null) {
+                try {
+                    __conn.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return Response.ok(String.valueOf(__objResponse), MediaType.APPLICATION_JSON).build();
+    }
+
+// ============================================================
+// 7. Model List
+// ============================================================
+    @GET
+    @Path("/getSearchModelList")
+    public Response getSearchModelList() {
+        JSONObject __objResponse = new JSONObject();
+        __objResponse.put("success", false);
+        Connection __conn = null;
+        try {
+            __conn = getConnection();
+            __objResponse.put("data", executeQuery(__conn, "SELECT code, name_1 FROM ic_model"));
+            __objResponse.put("success", true);
+        } catch (Exception ex) {
+            return Response.status(400).entity("{\"error\": \"" + ex.getMessage() + "\"}").build();
+        } finally {
+            if (__conn != null) {
+                try {
+                    __conn.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return Response.ok(String.valueOf(__objResponse), MediaType.APPLICATION_JSON).build();
+    }
+
+// ============================================================
+// 8. Category List
+// ============================================================
+    @GET
+    @Path("/getSearchCategoryList")
+    public Response getSearchCategoryList() {
+        JSONObject __objResponse = new JSONObject();
+        __objResponse.put("success", false);
+        Connection __conn = null;
+        try {
+            __conn = getConnection();
+            __objResponse.put("data", executeQuery(__conn, "SELECT code, name_1 FROM ic_category"));
+            __objResponse.put("success", true);
+        } catch (Exception ex) {
+            return Response.status(400).entity("{\"error\": \"" + ex.getMessage() + "\"}").build();
+        } finally {
+            if (__conn != null) {
+                try {
+                    __conn.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return Response.ok(String.valueOf(__objResponse), MediaType.APPLICATION_JSON).build();
+    }
+
+// ============================================================
+// 9. Format (Pattern) List
+// ============================================================
+    @GET
+    @Path("/getSearchFormatList")
+    public Response getSearchFormatList() {
+        JSONObject __objResponse = new JSONObject();
+        __objResponse.put("success", false);
+        Connection __conn = null;
+        try {
+            __conn = getConnection();
+            __objResponse.put("data", executeQuery(__conn, "SELECT code, name_1 FROM ic_pattern"));
+            __objResponse.put("success", true);
+        } catch (Exception ex) {
+            return Response.status(400).entity("{\"error\": \"" + ex.getMessage() + "\"}").build();
+        } finally {
+            if (__conn != null) {
+                try {
+                    __conn.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return Response.ok(String.valueOf(__objResponse), MediaType.APPLICATION_JSON).build();
+    }
+
+    @GET
+    @Path("/getBalanceDetail")
+    public Response getBalanceDetail(
+            @QueryParam("item_code") String strItemCode,
+            @QueryParam("shelf_list") String strShelf,
+            @QueryParam("warehouse") String strWarehouse
+    ) {
+        String strProvider = "DATA";
+        String strDatabaseName = "data2";
+        JSONObject __objResponse = new JSONObject();
+        __objResponse.put("success", false);
+
+        Connection __conn = null;
+        try {
+            _routine __routine = new _routine();
+            __conn = __routine._connect(strDatabaseName, _global.FILE_CONFIG(strProvider));
+
+            String __strItemCode = (strItemCode != null && !strItemCode.trim().isEmpty()) ? strItemCode.trim() : "";
+            String __strShelf = (strShelf != null && !strShelf.trim().isEmpty()) ? strShelf.trim() : "";
+            String __warehouse = (strWarehouse != null && !strWarehouse.trim().isEmpty()) ? strWarehouse.trim() : "";
+
+            // ---------- main query ----------
+            StringBuilder __strQuery = new StringBuilder();
+            __strQuery.append("select ");
+            __strQuery.append("  ic_code      as item_code, ");
+            __strQuery.append("  ic_name      as item_name, ");
+            __strQuery.append("  warehouse, ");
+            __strQuery.append("  location, ");
+            __strQuery.append("  balance_qty, ");
+            __strQuery.append("  ic_unit_code as unit_code ");
+            __strQuery.append("from sml_ic_function_stock_balance_warehouse_location( ");
+            __strQuery.append("  current_date, ");
+            __strQuery.append("  '" + __strItemCode + "', ");
+            __strQuery.append("  '@wh_code@', ");
+            __strQuery.append("  '@shelf_code@') ");
+            __strQuery.append("where balance_qty > 0 ");
+
+            // replace placeholders
+            String finalQuery = __strQuery.toString()
+                    .replace("@wh_code@", __warehouse)
+                    .replace("@shelf_code@", __strShelf);
+
+            System.out.println("__strQuery: " + finalQuery);
+
+            // ---------- execute main ----------
+            Statement __stmtData = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+            ResultSet __rsData = __stmtData.executeQuery(finalQuery);
+
+            JSONArray __jsonArr = new JSONArray();
+            while (__rsData.next()) {
+                String whCode = __rsData.getString("warehouse");
+                String locationCode = __rsData.getString("location");
+
+                // ---------- subquery overdue per row ----------
+                String __strQuery2
+                        = "select item_code, "
+                        + "  coalesce(("
+                        + "    select balance_qty "
+                        + "    from sml_ic_function_stock_balance_warehouse_location(current_date, '" + __strItemCode + "', '" + whCode + "', '" + locationCode + "') "
+                        + "    where item_code = ic_code"
+                        + "  ), 0) as overdue "
+                        + "from ic_trans_detail "
+                        + "where item_code  = '" + __strItemCode + "' "
+                        + "  and wh_code    = '" + whCode + "' "
+                        + "  and shelf_code = '" + locationCode + "' "
+                        + "limit 1";
+
+                Statement __stmtSub = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+                ResultSet __rsSub = __stmtSub.executeQuery(__strQuery2);
+
+                JSONObject obj = new JSONObject();
+                obj.put("item_code", __rsData.getString("item_code"));
+                obj.put("item_name", __rsData.getString("item_name"));
+                obj.put("balance_qty", String.format("%,.0f", Float.parseFloat(__rsData.getString("balance_qty"))));
+                obj.put("unit_code", __rsData.getString("unit_code"));
+                obj.put("warehouse", whCode);
+                obj.put("location", locationCode);
+                obj.put("overdue", "0");
+
+                if (__rsSub.next()) {
+                    obj.put("overdue", __rsSub.getString("overdue"));
+                }
+                __rsSub.close();
+                __stmtSub.close();
+
+                __jsonArr.put(obj);
+            }
+            __rsData.close();
+            __stmtData.close();
+
+            // ---------- row_count ----------
+            String __strCountQuery = "select count(*) as xcount from (" + finalQuery + ") as cnt";
+            Statement __stmtCount = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+            ResultSet __rsCount = __stmtCount.executeQuery(__strCountQuery);
+
+            int rowCount = 0;
+            if (__rsCount.next()) {
+                rowCount = __rsCount.getInt("xcount");
+            }
+            __rsCount.close();
+            __stmtCount.close();
+
+            __objResponse.put("success", true);
+            __objResponse.put("data", __jsonArr);
+            __objResponse.put("row_count", rowCount);
+
+        } catch (Exception ex) {
+            return Response.status(400).entity("{\"error\": \"" + ex.getMessage() + "\"}").build();
+        } finally {
+            if (__conn != null) {
+                try {
+                    __conn.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+
         return Response.ok(String.valueOf(__objResponse), MediaType.APPLICATION_JSON).build();
     }
 
