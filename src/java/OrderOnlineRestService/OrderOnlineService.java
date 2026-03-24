@@ -2279,7 +2279,35 @@ public class OrderOnlineService {
             } catch (Exception ignored) {
             }
 
-            String __itemCode = (strSearch != null && !strSearch.trim().isEmpty()) ? strSearch.trim() : "";
+            String _where = "";
+            if (strSearch != null && strSearch.trim().length() > 0) {
+                String[] __fieldList = {"ic_inventory.name_1", "ic_inventory.code", "ic_inventory_detail.dimension_15"};
+                // แต่ละช่องค้นหาคั่นด้วย | → OR ระหว่างช่อง, space ภายในช่อง → AND
+                String[] __searchGroups = strSearch.trim().split("\\|");
+                StringBuilder __outerWhere = new StringBuilder();
+                for (String __group : __searchGroups) {
+                    String __groupTrimmed = __group.trim();
+                    if (__groupTrimmed.isEmpty()) continue;
+                    String[] __keyword = __groupTrimmed.split(" ");
+                    StringBuilder __groupWhere = new StringBuilder();
+                    for (String __field : __fieldList) {
+                        StringBuilder __fieldCond = new StringBuilder();
+                        for (int __loop = 0; __loop < __keyword.length; __loop++) {
+                            if (__loop > 0) __fieldCond.append(" and ");
+                            __fieldCond.append("upper(").append(__field)
+                                    .append(") like '%").append(__keyword[__loop].trim().toUpperCase()).append("%'");
+                        }
+                        if (__groupWhere.length() > 0) __groupWhere.append(" or ");
+                        __groupWhere.append("(").append(__fieldCond).append(")");
+                    }
+                    if (__outerWhere.length() > 0) __outerWhere.append(" or ");
+                    __outerWhere.append("(").append(__groupWhere).append(")");
+                }
+                if (__outerWhere.length() > 0) {
+                    _where += " and (" + __outerWhere.toString() + ") ";
+                }
+            }
+
             String __warehouse = (strWarehouse != null && !strWarehouse.trim().isEmpty()) ? strWarehouse.trim() : "";
             String __shelfFrom = (strShelfFrom != null && !strShelfFrom.trim().isEmpty()) ? strShelfFrom.trim() : "";
             String __shelfTo = (strShelfTo != null && !strShelfTo.trim().isEmpty()) ? strShelfTo.trim() : "";
@@ -2307,15 +2335,11 @@ public class OrderOnlineService {
             __strQuery.append("  ic_inventory.unit_standard as unit_code, ");
             __strQuery.append("  '' as shelf_list, ");
             __strQuery.append("  '' as warehouse_list ");
-            __strQuery.append("from ic_inventory ");
-            __strQuery.append("where 1=1 and ic_inventory.balance_qty > 0 ");
+            __strQuery.append("from ic_inventory left join "
+                    + " ic_inventory_detail on ic_inventory_detail.ic_code = ic_inventory.code ");
+            __strQuery.append(" where 1=1 and ic_inventory.balance_qty > 0 ");
 
             // ---------- filters ----------
-            if (!__itemCode.isEmpty()) {
-                String kw = __itemCode.replace(" ", "%");
-                __strQuery.append(" and (lower(ic_inventory.code) like lower('%" + kw + "%') or lower(ic_inventory.name_1) like lower('%" + kw + "%')) ");
-                __strIcQuerySub.append(" and (lower(ic_inventory.code) like lower('%" + kw + "%') or lower(ic_inventory.name_1) like lower('%" + kw + "%')) ");
-            }
             if (!__groupSub.isEmpty()) {
                 String[] vals = __groupSub.split(",");
                 __strQuery.append(" and ic_inventory.group_sub in ('" + String.join("','", vals) + "') ");
@@ -2345,6 +2369,12 @@ public class OrderOnlineService {
                 String[] vals = __format.split(",");
                 __strQuery.append(" and ic_inventory.item_pattern in ('" + String.join("','", vals) + "') ");
                 __strIcQuerySub.append(" and ic_inventory.item_pattern in ('" + String.join("','", vals) + "') ");
+            }
+
+            if (!_where.equals("")) {
+
+                __strQuery.append(_where);
+                __strIcQuerySub.append(_where);
             }
 
             // ---------- warehouse / shelf flag ----------
@@ -2432,6 +2462,7 @@ public class OrderOnlineService {
 
             // ---------- execute data ----------
             String __strPaginationQuery = " OFFSET " + intOffset + " LIMIT " + intLimit;
+            System.out.println("__strQuery.toString() " + __strQuery.toString());
             Statement __stmtData = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
             ResultSet __rsData = __stmtData.executeQuery(__strQuery.toString() + __strPaginationQuery);
 
@@ -2660,7 +2691,7 @@ public class OrderOnlineService {
             String location = (strLocation != null && !strLocation.trim().isEmpty()) ? strLocation.trim() : "";
             String unitCode = (strUnitCode != null && !strUnitCode.trim().isEmpty()) ? strUnitCode.trim() : "";
             String custCode = (strCustCode != null && !strCustCode.trim().isEmpty()) ? strCustCode.trim() : "";
-            String saleType =  "2";
+            String saleType = "2";
 
             String price = "0";
 
@@ -2815,9 +2846,32 @@ public class OrderOnlineService {
 
             // ---------- filters ----------
             if (!__itemCode.isEmpty()) {
-                String kw = __itemCode.replace(" ", "%");
-                __strQuery.append(" and (lower(ic_inventory.code) like lower('%" + kw + "%') or lower(ic_inventory.name_1) like lower('%" + kw + "%')) ");
-                __strIcQuerySub.append(" and (lower(ic_inventory.code) like lower('%" + kw + "%') or lower(ic_inventory.name_1) like lower('%" + kw + "%')) ");
+                String[] __fieldList = {"ic_inventory.name_1", "ic_inventory.code", "ic_inventory_detail.dimension_15"};
+                // แต่ละช่องค้นหาคั่นด้วย | → OR ระหว่างช่อง, space ภายในช่อง → AND
+                String[] __searchGroups = __itemCode.split("\\|");
+                StringBuilder __outerWhere = new StringBuilder();
+                for (String __group : __searchGroups) {
+                    String __groupTrimmed = __group.trim();
+                    if (__groupTrimmed.isEmpty()) continue;
+                    String[] __keyword = __groupTrimmed.split(" ");
+                    StringBuilder __groupWhere = new StringBuilder();
+                    for (String __field : __fieldList) {
+                        StringBuilder __fieldCond = new StringBuilder();
+                        for (int __loop = 0; __loop < __keyword.length; __loop++) {
+                            if (__loop > 0) __fieldCond.append(" and ");
+                            __fieldCond.append("upper(").append(__field)
+                                    .append(") like '%").append(__keyword[__loop].trim().toUpperCase()).append("%'");
+                        }
+                        if (__groupWhere.length() > 0) __groupWhere.append(" or ");
+                        __groupWhere.append("(").append(__fieldCond).append(")");
+                    }
+                    if (__outerWhere.length() > 0) __outerWhere.append(" or ");
+                    __outerWhere.append("(").append(__groupWhere).append(")");
+                }
+                if (__outerWhere.length() > 0) {
+                    __strQuery.append(" and (").append(__outerWhere).append(") ");
+                    __strIcQuerySub.append(" and (").append(__outerWhere).append(") ");
+                }
             }
 
             if (!__groupSub.isEmpty()) {
@@ -4985,7 +5039,7 @@ public class OrderOnlineService {
 
             String strPriceStandard = "";
 //            System.out.println(__QueryList.get(5));
-            System.out.println("__QueryList.get(5)" + __QueryList.get(5));
+//            System.out.println("__QueryList.get(5)" + __QueryList.get(5));
             if (__foundPrice && ic_price_formula_control == 1) {
                 try {
                     ResultSet __rsData2;
