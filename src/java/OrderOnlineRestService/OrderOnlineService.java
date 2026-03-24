@@ -2256,7 +2256,8 @@ public class OrderOnlineService {
             @QueryParam("sort") String strSort,
             @QueryParam("sort_col") String strSortCol,
             @QueryParam("offset") String strOffset,
-            @QueryParam("limit") String strLimit
+            @QueryParam("limit") String strLimit,
+            @QueryParam("isstock") String strIsStock
     ) {
         String strProvider = "DATA";
         String strDatabaseName = "data2";
@@ -2287,20 +2288,28 @@ public class OrderOnlineService {
                 StringBuilder __outerWhere = new StringBuilder();
                 for (String __group : __searchGroups) {
                     String __groupTrimmed = __group.trim();
-                    if (__groupTrimmed.isEmpty()) continue;
+                    if (__groupTrimmed.isEmpty()) {
+                        continue;
+                    }
                     String[] __keyword = __groupTrimmed.split(" ");
                     StringBuilder __groupWhere = new StringBuilder();
                     for (String __field : __fieldList) {
                         StringBuilder __fieldCond = new StringBuilder();
                         for (int __loop = 0; __loop < __keyword.length; __loop++) {
-                            if (__loop > 0) __fieldCond.append(" and ");
+                            if (__loop > 0) {
+                                __fieldCond.append(" and ");
+                            }
                             __fieldCond.append("upper(").append(__field)
                                     .append(") like '%").append(__keyword[__loop].trim().toUpperCase()).append("%'");
                         }
-                        if (__groupWhere.length() > 0) __groupWhere.append(" or ");
+                        if (__groupWhere.length() > 0) {
+                            __groupWhere.append(" or ");
+                        }
                         __groupWhere.append("(").append(__fieldCond).append(")");
                     }
-                    if (__outerWhere.length() > 0) __outerWhere.append(" or ");
+                    if (__outerWhere.length() > 0) {
+                        __outerWhere.append(" or ");
+                    }
                     __outerWhere.append("(").append(__groupWhere).append(")");
                 }
                 if (__outerWhere.length() > 0) {
@@ -2328,16 +2337,29 @@ public class OrderOnlineService {
 
             __strIcQuerySub.append("select string_agg(ic_inventory.code,',') as code from ic_inventory where 1=1 ");
 
-            // flag=0: query เบาๆ จาก ic_inventory ตรงๆ ไม่มี price subquery
+            // flag=0: query จาก ic_inventory + price + description (ไม่แตะ stock function)
             __strQuery.append("select ");
-            __strQuery.append("  ic_inventory.code         as item_code, ");
-            __strQuery.append("  ic_inventory.name_1       as item_name, ");
+            __strQuery.append("  ic_inventory.code          as item_code, ");
+            __strQuery.append("  ic_inventory.name_1        as item_name, ");
             __strQuery.append("  ic_inventory.unit_standard as unit_code, ");
             __strQuery.append("  '' as shelf_list, ");
-            __strQuery.append("  '' as warehouse_list ");
+            __strQuery.append("  '' as warehouse_list, ");
+            __strQuery.append("  coalesce((select pf.price_0 from ic_inventory_price_formula pf ");
+            __strQuery.append("    where pf.ic_code = ic_inventory.code and pf.unit_code = ic_inventory.unit_standard ");
+            __strQuery.append("    and pf.sale_type = 2 limit 1), '0') as price_0, ");
+            __strQuery.append("  coalesce((select pf.price_9 from ic_inventory_price_formula pf ");
+            __strQuery.append("    where pf.ic_code = ic_inventory.code and pf.unit_code = ic_inventory.unit_standard ");
+            __strQuery.append("    and pf.sale_type = 2 limit 1), '0') as price_9, ");
+            __strQuery.append("  coalesce((select d.description from ic_description d ");
+            __strQuery.append("    where d.ic_code = ic_inventory.code limit 1), '') as description ");
             __strQuery.append("from ic_inventory left join "
                     + " ic_inventory_detail on ic_inventory_detail.ic_code = ic_inventory.code ");
-            __strQuery.append(" where 1=1 and ic_inventory.balance_qty > 0 ");
+            boolean __onlyInStock = "1".equals(strIsStock);
+            if (__onlyInStock) {
+                __strQuery.append(" where 1=1 and ic_inventory.balance_qty > 0 ");
+            } else {
+                __strQuery.append(" where 1=1 ");
+            }
 
             // ---------- filters ----------
             if (!__groupSub.isEmpty()) {
@@ -2419,7 +2441,15 @@ public class OrderOnlineService {
                 __strQuery.append("  stk.ic_unit_code as unit_code, ");
                 __strQuery.append("  '@shelf_code@' as shelf_list, ");
                 __strQuery.append("  '@wh_code@'    as warehouse_list, ");
-                __strQuery.append("  sum(balance_qty) as balance_qty ");
+                __strQuery.append("  sum(stk.balance_qty) as balance_qty, ");
+                __strQuery.append("  coalesce((select pf.price_0 from ic_inventory_price_formula pf ");
+                __strQuery.append("    where pf.ic_code = stk.ic_code and pf.unit_code = stk.ic_unit_code ");
+                __strQuery.append("    and pf.sale_type = 2 limit 1), '0') as price_0, ");
+                __strQuery.append("  coalesce((select pf.price_9 from ic_inventory_price_formula pf ");
+                __strQuery.append("    where pf.ic_code = stk.ic_code and pf.unit_code = stk.ic_unit_code ");
+                __strQuery.append("    and pf.sale_type = 2 limit 1), '0') as price_9, ");
+                __strQuery.append("  coalesce((select d.description from ic_description d ");
+                __strQuery.append("    where d.ic_code = stk.ic_code limit 1), '') as description ");
                 __strQuery.append("from sml_ic_function_stock_balance_warehouse_location(current_date, '@ic_code@', '@wh_code@', '@shelf_code@') as stk ");
                 __strQuery.append("where stk.balance_qty > 0 ");
                 __strQuery.append("group by stk.ic_code, stk.ic_name, stk.ic_unit_code ");
@@ -2444,6 +2474,7 @@ public class OrderOnlineService {
                 }
             }
 
+            System.out.println("__strQuery.toString() " + __strQuery.toString());
             // ---------- execute count ----------
             String __strCountQuery = "select count(*) as xcount from (" + __strQuery.toString() + ") as cnt";
             Statement __stmtCount = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
@@ -2462,7 +2493,7 @@ public class OrderOnlineService {
 
             // ---------- execute data ----------
             String __strPaginationQuery = " OFFSET " + intOffset + " LIMIT " + intLimit;
-            System.out.println("__strQuery.toString() " + __strQuery.toString());
+
             Statement __stmtData = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
             ResultSet __rsData = __stmtData.executeQuery(__strQuery.toString() + __strPaginationQuery);
 
@@ -2474,7 +2505,12 @@ public class OrderOnlineService {
                 obj.put("unit_code", __rsData.getString("unit_code"));
                 obj.put("shelf_list", __rsData.getString("shelf_list"));
                 obj.put("warehouse_list", __rsData.getString("warehouse_list"));
-                // ไม่ query ราคา/stock → ส่ง placeholder
+                obj.put("price_0", __rsData.getString("price_0"));
+                obj.put("price_9", __rsData.getString("price_9"));
+                obj.put("description", __rsData.getString("description"));
+                // lazy load stock จาก getBalanceStockBatch
+                obj.put("balance_qty_current_year", "");
+                obj.put("balance_qty_other_year", "");
                 obj.put("price", "");
                 obj.put("balance_qty", "");
                 obj.put("year_weak", "");
@@ -2496,6 +2532,78 @@ public class OrderOnlineService {
                     __conn.close();
                 } catch (Exception ignored) {
                 }
+            }
+        }
+        return Response.ok(String.valueOf(__objResponse), MediaType.APPLICATION_JSON).build();
+    }
+
+    // ============================================================
+    // getBalanceStockBatch — lazy load stock แยกปี สำหรับ item_codes batch
+    // เรียก sml_ic_function_stock_balance_warehouse_location ครั้งเดียว
+    // ============================================================
+    @GET
+    @Path("/getBalanceStockBatch")
+    public Response getBalanceStockBatch(
+            @QueryParam("item_codes") String strItemCodes,
+            @QueryParam("warehouse") String strWarehouse,
+            @QueryParam("shelf_list") String strShelfList
+    ) {
+        String strProvider = "DATA";
+        String strDatabaseName = "data2";
+        JSONObject __objResponse = new JSONObject();
+        __objResponse.put("success", false);
+
+        Connection __conn = null;
+        try {
+            _routine __routine = new _routine();
+            __conn = __routine._connect(strDatabaseName, _global.FILE_CONFIG(strProvider));
+
+            String itemCodes = (strItemCodes != null && !strItemCodes.trim().isEmpty()) ? strItemCodes.trim() : "";
+            String warehouse = (strWarehouse != null && !strWarehouse.trim().isEmpty()) ? strWarehouse.trim() : "";
+            String shelfList = (strShelfList != null && !strShelfList.trim().isEmpty()) ? strShelfList.trim() : "";
+
+            if (itemCodes.isEmpty()) {
+                __objResponse.put("success", true);
+                __objResponse.put("data", new JSONArray());
+                return Response.ok(String.valueOf(__objResponse), MediaType.APPLICATION_JSON).build();
+            }
+
+            String currentYearPfx = String.valueOf(java.time.Year.now().getValue()).substring(2, 4);
+
+            // เรียก function ครั้งเดียวด้วย item_codes ทั้งหมด แล้ว group by ic_code
+            String qry = "select ic_code, "
+                    + "  sum(case when left(location,2) = '" + currentYearPfx + "' then balance_qty else 0 end) as balance_qty_current_year, "
+                    + "  sum(case when left(location,2) != '" + currentYearPfx + "' then balance_qty else 0 end) as balance_qty_other_year, "
+                    + "  sum(balance_qty) as balance_qty, "
+                    + "  (array_agg(location order by location asc))[1] as year_weak "
+                    + "from sml_ic_function_stock_balance_warehouse_location(current_date, '" + itemCodes + "', '" + warehouse + "', '" + shelfList + "') "
+                    + "where balance_qty > 0 "
+                    + "group by ic_code";
+
+            Statement stmt = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+            ResultSet rs = stmt.executeQuery(qry);
+
+            JSONArray __jsonArr = new JSONArray();
+            while (rs.next()) {
+                JSONObject obj = new JSONObject();
+                obj.put("item_code", rs.getString("ic_code"));
+                obj.put("balance_qty_current_year", String.format("%,.0f", rs.getDouble("balance_qty_current_year")));
+                obj.put("balance_qty_other_year", String.format("%,.0f", rs.getDouble("balance_qty_other_year")));
+                obj.put("balance_qty", String.format("%,.0f", rs.getDouble("balance_qty")));
+                obj.put("year_weak", rs.getString("year_weak") != null ? rs.getString("year_weak") : "");
+                __jsonArr.put(obj);
+            }
+            rs.close();
+            stmt.close();
+
+            __objResponse.put("success", true);
+            __objResponse.put("data", __jsonArr);
+
+        } catch (Exception ex) {
+            return Response.status(400).entity("{\"error\": \"" + ex.getMessage() + "\"}").build();
+        } finally {
+            if (__conn != null) {
+                try { __conn.close(); } catch (Exception ignored) {}
             }
         }
         return Response.ok(String.valueOf(__objResponse), MediaType.APPLICATION_JSON).build();
@@ -2557,42 +2665,42 @@ public class OrderOnlineService {
                 rsU.close();
                 stmtU.close();
 
-                // ถ้ามี warehouse/shelf → ใช้ function stock balance
-                if (!warehouse.isEmpty() || !shelfList.isEmpty()) {
-                    String qryStk = "SELECT sum(balance_qty) as balance_qty, "
-                            + "(select location from sml_ic_function_stock_balance_warehouse_location(current_date, '" + itemCode + "', '" + warehouse + "', '" + shelfList + "') "
-                            + " where balance_qty > 0 order by location asc limit 1) as year_weak "
-                            + "FROM sml_ic_function_stock_balance_warehouse_location(current_date, '" + itemCode + "', '" + warehouse + "', '" + shelfList + "') "
-                            + "WHERE balance_qty > 0";
-                    Statement stmtStk = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
-                    ResultSet rsStk = stmtStk.executeQuery(qryStk);
-                    if (rsStk.next()) {
-                        String sq = rsStk.getString("balance_qty");
-                        if (sq != null) {
-                            balanceQty = sq;
-                        }
-                        String yw = rsStk.getString("year_weak");
-                        if (yw != null) {
-                            yearWeak = yw;
-                        }
+                String currentYearPrefix = String.valueOf(java.time.Year.now().getValue()).substring(2, 4);
+                String balanceQtyCurrentYear = "0";
+                String balanceQtyOtherYear = "0";
+
+                String wh = warehouse;
+                String sh = shelfList;
+                String qryStk = "SELECT "
+                        + "  sum(balance_qty) as balance_qty, "
+                        + "  sum(CASE WHEN LEFT(location,2) = '" + currentYearPrefix + "' THEN balance_qty ELSE 0 END) as balance_qty_current_year, "
+                        + "  sum(CASE WHEN LEFT(location,2) != '" + currentYearPrefix + "' THEN balance_qty ELSE 0 END) as balance_qty_other_year, "
+                        + "  (SELECT location FROM sml_ic_function_stock_balance_warehouse_location(current_date, '" + itemCode + "', '" + wh + "', '" + sh + "') "
+                        + "   WHERE balance_qty > 0 ORDER BY location ASC LIMIT 1) AS year_weak "
+                        + "FROM sml_ic_function_stock_balance_warehouse_location(current_date, '" + itemCode + "', '" + wh + "', '" + sh + "') "
+                        + "WHERE balance_qty > 0";
+                Statement stmtStk = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+                ResultSet rsStk = stmtStk.executeQuery(qryStk);
+                if (rsStk.next()) {
+                    String sq = rsStk.getString("balance_qty");
+                    if (sq != null) {
+                        balanceQty = sq;
                     }
-                    rsStk.close();
-                    stmtStk.close();
-                } else {
-                    // ไม่มี warehouse filter → หา year_weak (location) จาก function
-                    String qryLoc = "SELECT location FROM sml_ic_function_stock_balance_warehouse_location(current_date, '" + itemCode + "', '', '') "
-                            + "WHERE balance_qty > 0 ORDER BY location ASC LIMIT 1";
-                    Statement stmtLoc = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
-                    ResultSet rsLoc = stmtLoc.executeQuery(qryLoc);
-                    if (rsLoc.next()) {
-                        String loc = rsLoc.getString("location");
-                        if (loc != null) {
-                            yearWeak = loc;
-                        }
+                    String sqCY = rsStk.getString("balance_qty_current_year");
+                    if (sqCY != null) {
+                        balanceQtyCurrentYear = sqCY;
                     }
-                    rsLoc.close();
-                    stmtLoc.close();
+                    String sqOY = rsStk.getString("balance_qty_other_year");
+                    if (sqOY != null) {
+                        balanceQtyOtherYear = sqOY;
+                    }
+                    String yw = rsStk.getString("year_weak");
+                    if (yw != null) {
+                        yearWeak = yw;
+                    }
                 }
+                rsStk.close();
+                stmtStk.close();
 
                 // --- price ---
                 String price = "0";
@@ -2645,6 +2753,8 @@ public class OrderOnlineService {
 
                 obj.put("unit_code", unitCode);
                 obj.put("balance_qty", String.format("%,.0f", Float.parseFloat(balanceQty != null ? balanceQty : "0")));
+                obj.put("balance_qty_current_year", String.format("%,.0f", Float.parseFloat(balanceQtyCurrentYear != null ? balanceQtyCurrentYear : "0")));
+                obj.put("balance_qty_other_year", String.format("%,.0f", Float.parseFloat(balanceQtyOtherYear != null ? balanceQtyOtherYear : "0")));
                 obj.put("year_weak", yearWeak);
                 obj.put("price", price);
                 obj.put("update_date", updateDate);
@@ -2852,20 +2962,28 @@ public class OrderOnlineService {
                 StringBuilder __outerWhere = new StringBuilder();
                 for (String __group : __searchGroups) {
                     String __groupTrimmed = __group.trim();
-                    if (__groupTrimmed.isEmpty()) continue;
+                    if (__groupTrimmed.isEmpty()) {
+                        continue;
+                    }
                     String[] __keyword = __groupTrimmed.split(" ");
                     StringBuilder __groupWhere = new StringBuilder();
                     for (String __field : __fieldList) {
                         StringBuilder __fieldCond = new StringBuilder();
                         for (int __loop = 0; __loop < __keyword.length; __loop++) {
-                            if (__loop > 0) __fieldCond.append(" and ");
+                            if (__loop > 0) {
+                                __fieldCond.append(" and ");
+                            }
                             __fieldCond.append("upper(").append(__field)
                                     .append(") like '%").append(__keyword[__loop].trim().toUpperCase()).append("%'");
                         }
-                        if (__groupWhere.length() > 0) __groupWhere.append(" or ");
+                        if (__groupWhere.length() > 0) {
+                            __groupWhere.append(" or ");
+                        }
                         __groupWhere.append("(").append(__fieldCond).append(")");
                     }
-                    if (__outerWhere.length() > 0) __outerWhere.append(" or ");
+                    if (__outerWhere.length() > 0) {
+                        __outerWhere.append(" or ");
+                    }
                     __outerWhere.append("(").append(__groupWhere).append(")");
                 }
                 if (__outerWhere.length() > 0) {
