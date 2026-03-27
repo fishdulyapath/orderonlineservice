@@ -2253,7 +2253,11 @@ public class OrderOnlineService {
             @QueryParam("offset") String strOffset,
             @QueryParam("limit") String strLimit,
             @QueryParam("isstock") String strIsStock,
-            @QueryParam("stockfilter") String strStockFilter
+            @QueryParam("stockfilter") String strStockFilter,
+            @QueryParam("price_from") String strPriceFrom,
+            @QueryParam("price_to") String strPriceTo,
+            @QueryParam("qty_conditions") String strQtyConditions,
+            @QueryParam("dot_years") String strDotYears
     ) {
         String strProvider = "DATA";
         String strDatabaseName = "kbg";
@@ -2333,7 +2337,8 @@ public class OrderOnlineService {
 
             __strIcQuerySub.append("select string_agg(ic_inventory.code,',') as code from ic_inventory left join ic_inventory_detail on ic_inventory_detail.ic_code = ic_inventory.code where 1=1 ");
 
-            // flag=0: query จาก ic_inventory + price + description (ไม่แตะ stock function)
+            String currentYearPfx = String.valueOf(java.time.Year.now().getValue()).substring(2, 4);
+            // flag=0: query จาก ic_inventory + stock function (ได้ qty/dot_year_list ครั้งเดียว)
             __strQuery.append("select ");
             __strQuery.append("  ic_inventory.code          as item_code, ");
             __strQuery.append("  ic_inventory.name_1        as item_name, ");
@@ -2347,12 +2352,22 @@ public class OrderOnlineService {
             __strQuery.append("    where pf.ic_code = ic_inventory.code and pf.unit_code = ic_inventory.unit_standard ");
             __strQuery.append("    and pf.sale_type = 2 limit 1), '0') as price_9, ");
             __strQuery.append("  coalesce((select d.description from ic_description d ");
-            __strQuery.append("    where d.ic_code = ic_inventory.code limit 1), '') as description ");
+            __strQuery.append("    where d.ic_code = ic_inventory.code limit 1), '') as description, ");
+            __strQuery.append("  coalesce((select sum(case when left(stk0.location,2)='" + currentYearPfx + "' then stk0.balance_qty else 0 end) ");
+            __strQuery.append("    from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk0 where stk0.balance_qty>0), 0) as balance_qty_current_year, ");
+            __strQuery.append("  coalesce((select sum(case when left(stk0.location,2)!='" + currentYearPfx + "' then stk0.balance_qty else 0 end) ");
+            __strQuery.append("    from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk0 where stk0.balance_qty>0), 0) as balance_qty_other_year, ");
+            __strQuery.append("  coalesce((select string_agg(distinct left(stk0.location,2),',') ");
+            __strQuery.append("    from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk0 where stk0.balance_qty>0), '') as dot_year_list ");
             __strQuery.append("from ic_inventory left join "
                     + " ic_inventory_detail on ic_inventory_detail.ic_code = ic_inventory.code ");
             // stockfilter: gt0=มีคงเหลือ, zero=หมด, low=ใกล้หมด, all/null=ทั้งหมด
             // ถ้าไม่มี stockfilter ให้ fallback ไปใช้ isstock เดิม
             String __stockFilter = (strStockFilter != null && !strStockFilter.trim().isEmpty()) ? strStockFilter.trim() : "";
+            String __priceFrom = (strPriceFrom != null && !strPriceFrom.trim().isEmpty()) ? strPriceFrom.trim() : "";
+            String __priceTo = (strPriceTo != null && !strPriceTo.trim().isEmpty()) ? strPriceTo.trim() : "";
+            String __qtyConditions = (strQtyConditions != null && !strQtyConditions.trim().isEmpty()) ? strQtyConditions.trim() : "";
+            String __dotYears = (strDotYears != null && !strDotYears.trim().isEmpty()) ? strDotYears.trim() : "";
             boolean __onlyInStock = "1".equals(strIsStock);
             if ("gt0".equals(__stockFilter)) {
                 __strQuery.append(" where 1=1 and ic_inventory.balance_qty > 0 ");
@@ -2402,6 +2417,46 @@ public class OrderOnlineService {
 
                 __strQuery.append(_where);
                 __strIcQuerySub.append(_where);
+            }
+
+            // ---------- price range ----------
+            if (!__priceFrom.isEmpty()) {
+                __strQuery.append(" and coalesce(nullif((select pf2.price_0 from ic_inventory_price_formula pf2 where pf2.ic_code = ic_inventory.code and pf2.unit_code = ic_inventory.unit_standard and pf2.sale_type = 2 limit 1), '')::numeric, 0) >= " + __priceFrom + " ");
+                __strIcQuerySub.append(" and coalesce(nullif((select pf2.price_0 from ic_inventory_price_formula pf2 where pf2.ic_code = ic_inventory.code and pf2.unit_code = ic_inventory.unit_standard and pf2.sale_type = 2 limit 1), '')::numeric, 0) >= " + __priceFrom + " ");
+            }
+            if (!__priceTo.isEmpty()) {
+                __strQuery.append(" and coalesce(nullif((select pf2.price_0 from ic_inventory_price_formula pf2 where pf2.ic_code = ic_inventory.code and pf2.unit_code = ic_inventory.unit_standard and pf2.sale_type = 2 limit 1), '')::numeric, 0) <= " + __priceTo + " ");
+                __strIcQuerySub.append(" and coalesce(nullif((select pf2.price_0 from ic_inventory_price_formula pf2 where pf2.ic_code = ic_inventory.code and pf2.unit_code = ic_inventory.unit_standard and pf2.sale_type = 2 limit 1), '')::numeric, 0) <= " + __priceTo + " ");
+            }
+
+            // ---------- dot_years ----------
+            if (!__dotYears.isEmpty()) {
+                String[] yrs = __dotYears.split(",");
+                StringBuilder dotIn = new StringBuilder();
+                for (String yr : yrs) {
+                    String yy = yr.trim().length() == 4 ? yr.trim().substring(2) : yr.trim();
+                    if (dotIn.length() > 0) dotIn.append("','");
+                    dotIn.append(yy);
+                }
+                String dotFilter = " and exists (select 1 from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk_d where stk_d.balance_qty>0 and left(stk_d.location,2) in ('" + dotIn + "')) ";
+                __strQuery.append(dotFilter);
+                __strIcQuerySub.append(dotFilter);
+            }
+
+            // ---------- qty_conditions (sum current+other) ----------
+            if (!__qtyConditions.isEmpty()) {
+                String[] conds = __qtyConditions.split("\\|");
+                for (String cond : conds) {
+                    cond = cond.trim();
+                    if (cond.isEmpty()) continue;
+                    String op = cond.replaceAll("[0-9.]+$", "");
+                    String val = cond.replace(op, "");
+                    if (!val.isEmpty()) {
+                        String qtyFilter = " and coalesce((select sum(stk_q.balance_qty) from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk_q where stk_q.balance_qty>0), 0) " + op + " " + val + " ";
+                        __strQuery.append(qtyFilter);
+                        __strIcQuerySub.append(qtyFilter);
+                    }
+                }
             }
 
             // ---------- warehouse / shelf flag ----------
@@ -2479,31 +2534,17 @@ public class OrderOnlineService {
                 }
             }
 
-            // ---------- execute count ----------
-            String __strCountQuery = "select count(*) as xcount from (" + __strQuery.toString() + ") as cnt";
-            System.out.println("__strCountQuery "+__strCountQuery);
-            Statement __stmtCount = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
-            ResultSet __rsCount = __stmtCount.executeQuery(__strCountQuery);
-
-            JSONObject objPage = new JSONObject();
-            if (__rsCount.next()) {
-                int total = __rsCount.getInt("xcount");
-                objPage.put("total", total);
-                objPage.put("perPage", intLimit);
-                objPage.put("page", intLimit > 0 ? intOffset / intLimit : 0);
-                objPage.put("totalPage", intLimit > 0 ? (int) Math.ceil((double) total / intLimit) : 1);
-            }
-            __rsCount.close();
-            __stmtCount.close();
-
-            // ---------- execute data ----------
-            String __strPaginationQuery = " OFFSET " + intOffset + " LIMIT " + intLimit;
+            // ---------- execute data (LIMIT+1 to detect hasNext, no count query) ----------
+            String __strPaginationQuery = " OFFSET " + intOffset + " LIMIT " + (intLimit + 1);
             System.out.println("__strQuery.toString() " + __strQuery.toString() + __strPaginationQuery);
             Statement __stmtData = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
             ResultSet __rsData = __stmtData.executeQuery(__strQuery.toString() + __strPaginationQuery);
 
             JSONArray __jsonArr = new JSONArray();
+            int __rowCount = 0;
             while (__rsData.next()) {
+                __rowCount++;
+                if (__rowCount > intLimit) break; // row ที่ limit+1 = มีหน้าต่อไป ไม่ต้อง add
                 JSONObject obj = new JSONObject();
                 obj.put("item_code", __rsData.getString("item_code"));
                 obj.put("item_name", __rsData.getString("item_name"));
@@ -2513,17 +2554,39 @@ public class OrderOnlineService {
                 obj.put("price_0", __rsData.getString("price_0"));
                 obj.put("price_9", __rsData.getString("price_9"));
                 obj.put("description", __rsData.getString("description"));
-                // lazy load stock จาก getBalanceStockBatch
-                obj.put("balance_qty_current_year", "");
-                obj.put("balance_qty_other_year", "");
                 obj.put("price", "");
-                obj.put("balance_qty", "");
-                obj.put("year_weak", "");
                 obj.put("update_date", "");
+                if (flag != 0) {
+                    String __balQty = "";
+                    try { __balQty = __rsData.getString("balance_qty"); } catch (Exception ignored) {}
+                    obj.put("balance_qty", __balQty);
+                    obj.put("balance_qty_current_year", __balQty);
+                    obj.put("balance_qty_other_year", "0");
+                    obj.put("dot_year_list", "");
+                    obj.put("year_weak", "");
+                } else {
+                    String bqCur = "", bqOth = "", dotYearList = "";
+                    try { bqCur = __rsData.getString("balance_qty_current_year"); } catch (Exception ignored) {}
+                    try { bqOth = __rsData.getString("balance_qty_other_year"); } catch (Exception ignored) {}
+                    try { dotYearList = __rsData.getString("dot_year_list"); } catch (Exception ignored) {}
+                    double cur = bqCur != null ? Double.parseDouble(bqCur) : 0;
+                    double oth = bqOth != null ? Double.parseDouble(bqOth) : 0;
+                    obj.put("balance_qty_current_year", String.format("%,.0f", cur));
+                    obj.put("balance_qty_other_year", String.format("%,.0f", oth));
+                    obj.put("balance_qty", String.format("%,.0f", cur + oth));
+                    obj.put("dot_year_list", dotYearList != null ? dotYearList : "");
+                    obj.put("year_weak", "");
+                }
                 __jsonArr.put(obj);
             }
             __rsData.close();
             __stmtData.close();
+
+            boolean hasNext = __rowCount > intLimit;
+            JSONObject objPage = new JSONObject();
+            objPage.put("hasNext", hasNext);
+            objPage.put("page", intLimit > 0 ? intOffset / intLimit : 0);
+            objPage.put("perPage", intLimit);
 
             __objResponse.put("success", true);
             __objResponse.put("data", __jsonArr);
@@ -2580,7 +2643,8 @@ public class OrderOnlineService {
                     + "  sum(case when left(location,2) = '" + currentYearPfx + "' then balance_qty else 0 end) as balance_qty_current_year, "
                     + "  sum(case when left(location,2) != '" + currentYearPfx + "' then balance_qty else 0 end) as balance_qty_other_year, "
                     + "  sum(balance_qty) as balance_qty, "
-                    + "  (array_agg(location order by location asc))[1] as year_weak "
+                    + "  (array_agg(location order by location asc))[1] as year_weak, "
+                    + "  string_agg(distinct left(location,2), ',') as dot_year_list "
                     + "from sml_ic_function_stock_balance_warehouse_location(current_date, '" + itemCodes + "', '" + warehouse + "', '" + shelfList + "') "
                     + "where balance_qty > 0 "
                     + "group by ic_code";
@@ -2596,6 +2660,7 @@ public class OrderOnlineService {
                 obj.put("balance_qty_other_year", String.format("%,.0f", rs.getDouble("balance_qty_other_year")));
                 obj.put("balance_qty", String.format("%,.0f", rs.getDouble("balance_qty")));
                 obj.put("year_weak", rs.getString("year_weak") != null ? rs.getString("year_weak") : "");
+                obj.put("dot_year_list", rs.getString("dot_year_list") != null ? rs.getString("dot_year_list") : "");
                 __jsonArr.put(obj);
             }
             rs.close();
