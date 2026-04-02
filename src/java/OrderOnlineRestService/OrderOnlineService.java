@@ -2339,6 +2339,26 @@ public class OrderOnlineService {
             __strIcQuerySub.append("select string_agg(ic_inventory.code,',') as code from ic_inventory left join ic_inventory_detail on ic_inventory_detail.ic_code = ic_inventory.code where 1=1 ");
 
             String currentYearPfx = String.valueOf(java.time.Year.now().getValue()).substring(2, 4);
+
+            String __stockFilter = (strStockFilter != null && !strStockFilter.trim().isEmpty()) ? strStockFilter.trim() : "";
+            String __priceFrom = (strPriceFrom != null && !strPriceFrom.trim().isEmpty()) ? strPriceFrom.trim() : "";
+            String __priceTo = (strPriceTo != null && !strPriceTo.trim().isEmpty()) ? strPriceTo.trim() : "";
+            String __qtyFrom = (strQtyFrom != null && !strQtyFrom.trim().isEmpty()) ? strQtyFrom.trim() : "";
+            String __qtyTo = (strQtyTo != null && !strQtyTo.trim().isEmpty()) ? strQtyTo.trim() : "";
+            String __dotYears = (strDotYears != null && !strDotYears.trim().isEmpty()) ? strDotYears.trim() : "";
+            boolean __onlyInStock = "1".equals(strIsStock);
+
+            // ============================================================
+            // ใช้ LATERAL JOIN เรียก sml_ic_function_stock_balance_warehouse_location
+            // ครั้งเดียวต่อ item แล้ว aggregate ผลไว้ เพื่อใช้ทั้ง SELECT และ WHERE
+            // แทนการเรียก correlated subquery ซ้ำ 5-8 ครั้งต่อ row
+            // ============================================================
+            boolean needStockFunction = "zero".equals(__stockFilter)
+                    || "low".equals(__stockFilter)
+                    || !__qtyFrom.isEmpty()
+                    || !__qtyTo.isEmpty()
+                    || !__dotYears.isEmpty();
+
             // flag=0: query จาก ic_inventory + stock function (ได้ qty/dot_year_list ครั้งเดียว)
             __strQuery.append("select ");
             __strQuery.append("  ic_inventory.code          as item_code, ");
@@ -2354,29 +2374,46 @@ public class OrderOnlineService {
             __strQuery.append("    and pf.sale_type = 2 limit 1), '0') as price_9, ");
             __strQuery.append("  coalesce((select d.description from ic_description d ");
             __strQuery.append("    where d.ic_code = ic_inventory.code limit 1), '') as description, ");
-            __strQuery.append("  coalesce((select sum(case when left(stk0.location,2)='" + currentYearPfx + "' then stk0.balance_qty else 0 end) ");
-            __strQuery.append("    from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk0 where stk0.balance_qty>0), 0) as balance_qty_current_year, ");
-            __strQuery.append("  coalesce((select sum(case when left(stk0.location,2)!='" + currentYearPfx + "' then stk0.balance_qty else 0 end) ");
-            __strQuery.append("    from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk0 where stk0.balance_qty>0), 0) as balance_qty_other_year, ");
-            __strQuery.append("  coalesce((select string_agg(distinct left(stk0.location,2),',') ");
-            __strQuery.append("    from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk0 where stk0.balance_qty>0), '') as dot_year_list ");
+            // ถ้าต้อง join stock function → ใช้ผลจาก stk_agg ที่ LATERAL JOIN แล้ว
+            // ถ้าไม่ต้อง → ยังคงเรียก function ใน SELECT เหมือนเดิม (เฉพาะ row ที่ผ่าน LIMIT)
+            if (needStockFunction) {
+                __strQuery.append("  coalesce(stk_agg.balance_qty_current_year, 0) as balance_qty_current_year, ");
+                __strQuery.append("  coalesce(stk_agg.balance_qty_other_year, 0) as balance_qty_other_year, ");
+                __strQuery.append("  coalesce(stk_agg.dot_year_list, '') as dot_year_list ");
+            } else {
+                __strQuery.append("  coalesce((select sum(case when left(stk0.location,2)='" + currentYearPfx + "' then stk0.balance_qty else 0 end) ");
+                __strQuery.append("    from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk0 where stk0.balance_qty>0), 0) as balance_qty_current_year, ");
+                __strQuery.append("  coalesce((select sum(case when left(stk0.location,2)!='" + currentYearPfx + "' then stk0.balance_qty else 0 end) ");
+                __strQuery.append("    from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk0 where stk0.balance_qty>0), 0) as balance_qty_other_year, ");
+                __strQuery.append("  coalesce((select string_agg(distinct left(stk0.location,2),',') ");
+                __strQuery.append("    from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk0 where stk0.balance_qty>0), '') as dot_year_list ");
+            }
             __strQuery.append("from ic_inventory left join "
                     + " ic_inventory_detail on ic_inventory_detail.ic_code = ic_inventory.code ");
+
+            // LATERAL JOIN: เรียก function ครั้งเดียวต่อ item แล้ว aggregate
+            if (needStockFunction) {
+                __strQuery.append(" left join lateral ( ");
+                __strQuery.append("   select ");
+                __strQuery.append("     sum(case when left(stk_l.location,2)='" + currentYearPfx + "' then stk_l.balance_qty else 0 end) as balance_qty_current_year, ");
+                __strQuery.append("     sum(case when left(stk_l.location,2)!='" + currentYearPfx + "' then stk_l.balance_qty else 0 end) as balance_qty_other_year, ");
+                __strQuery.append("     sum(stk_l.balance_qty) as total_qty, ");
+                __strQuery.append("     string_agg(distinct left(stk_l.location,2), ',') as dot_year_list ");
+                __strQuery.append("   from sml_ic_function_stock_balance_warehouse_location(current_date, ic_inventory.code, '', '') stk_l ");
+                __strQuery.append("   where stk_l.balance_qty > 0 ");
+                __strQuery.append(" ) stk_agg on true ");
+            }
+
             // stockfilter: zero=หมด(<=0), low=ใกล้หมด(<4), all/null=ทั้งหมด
             // ถ้าไม่มี stockfilter ให้ fallback ไปใช้ isstock เดิม
-            String __stockFilter = (strStockFilter != null && !strStockFilter.trim().isEmpty()) ? strStockFilter.trim() : "";
-            String __priceFrom = (strPriceFrom != null && !strPriceFrom.trim().isEmpty()) ? strPriceFrom.trim() : "";
-            String __priceTo = (strPriceTo != null && !strPriceTo.trim().isEmpty()) ? strPriceTo.trim() : "";
-            String __qtyFrom = (strQtyFrom != null && !strQtyFrom.trim().isEmpty()) ? strQtyFrom.trim() : "";
-            String __qtyTo = (strQtyTo != null && !strQtyTo.trim().isEmpty()) ? strQtyTo.trim() : "";
-            String __dotYears = (strDotYears != null && !strDotYears.trim().isEmpty()) ? strDotYears.trim() : "";
-            boolean __onlyInStock = "1".equals(strIsStock);
             if ("gt0".equals(__stockFilter)) {
                 __strQuery.append(" where 1=1 and ic_inventory.balance_qty > 0 ");
             } else if ("zero".equals(__stockFilter)) {
-                __strQuery.append(" where 1=1 and coalesce((select sum(stk_f.balance_qty) from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk_f where stk_f.balance_qty>0), 0) <= 0 ");
+                // ใช้ stk_agg.total_qty จาก LATERAL JOIN แทน correlated subquery
+                __strQuery.append(" where 1=1 and coalesce(stk_agg.total_qty, 0) <= 0 ");
             } else if ("low".equals(__stockFilter)) {
-                __strQuery.append(" where 1=1 and coalesce((select sum(stk_f.balance_qty) from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk_f where stk_f.balance_qty>0), 0) > 0 and coalesce((select sum(stk_f.balance_qty) from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk_f where stk_f.balance_qty>0), 0) < 4 ");
+                // ใช้ stk_agg.total_qty จาก LATERAL JOIN — เรียก function 1 ครั้งแทน 2 ครั้ง
+                __strQuery.append(" where 1=1 and coalesce(stk_agg.total_qty, 0) > 0 and coalesce(stk_agg.total_qty, 0) < 4 ");
             } else if (__onlyInStock) {
                 __strQuery.append(" where 1=1 and ic_inventory.balance_qty > 0 ");
             } else {
@@ -2431,7 +2468,7 @@ public class OrderOnlineService {
                 __strIcQuerySub.append(" and coalesce(nullif((select pf2.price_0 from ic_inventory_price_formula pf2 where pf2.ic_code = ic_inventory.code and pf2.unit_code = ic_inventory.unit_standard and pf2.sale_type = 2 limit 1), '')::numeric, 0) <= " + __priceTo + " ");
             }
 
-            // ---------- dot_years ----------
+            // ---------- dot_years — ใช้ stk_agg.dot_year_list จาก LATERAL JOIN ----------
             if (!__dotYears.isEmpty()) {
                 String[] yrs = __dotYears.split(",");
                 StringBuilder dotIn = new StringBuilder();
@@ -2440,26 +2477,31 @@ public class OrderOnlineService {
                     if (dotIn.length() > 0) dotIn.append("','");
                     dotIn.append(yy);
                 }
-                String dotFilter = " and exists (select 1 from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk_d where stk_d.balance_qty>0 and left(stk_d.location,2) in ('" + dotIn + "')) ";
+                // ใช้ dot_year_list จาก LATERAL JOIN แทน เรียก function ซ้ำ
+                String dotFilter = " and exists (select 1 from unnest(string_to_array(coalesce(stk_agg.dot_year_list,''), ',')) yr_val where yr_val in ('" + dotIn + "')) ";
                 __strQuery.append(dotFilter);
-                __strIcQuerySub.append(dotFilter);
+                // __strIcQuerySub ยังใช้ correlated subquery เดิมเพราะไม่มี LATERAL JOIN
+                String dotFilterSub = " and exists (select 1 from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk_d where stk_d.balance_qty>0 and left(stk_d.location,2) in ('" + dotIn + "')) ";
+                __strIcQuerySub.append(dotFilterSub);
             }
 
-            // ---------- qty_from / qty_to (sum current+other) ----------
+            // ---------- qty_from / qty_to — ใช้ stk_agg.total_qty จาก LATERAL JOIN ----------
             if (!__qtyFrom.isEmpty()) {
                 try {
                     double qtyFromVal = Double.parseDouble(__qtyFrom);
-                    String qtyFilter = " and coalesce((select sum(stk_q.balance_qty) from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk_q where stk_q.balance_qty>0), 0) >= " + qtyFromVal + " ";
-                    __strQuery.append(qtyFilter);
-                    __strIcQuerySub.append(qtyFilter);
+                    // main query ใช้ LATERAL JOIN result
+                    __strQuery.append(" and coalesce(stk_agg.total_qty, 0) >= " + qtyFromVal + " ");
+                    // sub query ยังใช้ correlated subquery เดิม
+                    __strIcQuerySub.append(" and coalesce((select sum(stk_q.balance_qty) from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk_q where stk_q.balance_qty>0), 0) >= " + qtyFromVal + " ");
                 } catch (NumberFormatException ignored) {}
             }
             if (!__qtyTo.isEmpty()) {
                 try {
                     double qtyToVal = Double.parseDouble(__qtyTo);
-                    String qtyFilter = " and coalesce((select sum(stk_q.balance_qty) from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk_q where stk_q.balance_qty>0), 0) <= " + qtyToVal + " ";
-                    __strQuery.append(qtyFilter);
-                    __strIcQuerySub.append(qtyFilter);
+                    // main query ใช้ LATERAL JOIN result
+                    __strQuery.append(" and coalesce(stk_agg.total_qty, 0) <= " + qtyToVal + " ");
+                    // sub query ยังใช้ correlated subquery เดิม
+                    __strIcQuerySub.append(" and coalesce((select sum(stk_q.balance_qty) from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk_q where stk_q.balance_qty>0), 0) <= " + qtyToVal + " ");
                 } catch (NumberFormatException ignored) {}
             }
 
