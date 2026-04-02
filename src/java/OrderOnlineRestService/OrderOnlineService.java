@@ -2338,15 +2338,56 @@ public class OrderOnlineService {
 
             __strIcQuerySub.append("select string_agg(ic_inventory.code,',') as code from ic_inventory left join ic_inventory_detail on ic_inventory_detail.ic_code = ic_inventory.code where 1=1 ");
 
-            String currentYearPfx = String.valueOf(java.time.Year.now().getValue()).substring(2, 4);
-
-            String __stockFilter = (strStockFilter != null && !strStockFilter.trim().isEmpty()) ? strStockFilter.trim() : "";
+            String currentYearPfx = String.valueOf(java.time.Year.now().getValue()).substring(2, 4);            String __stockFilter = (strStockFilter != null && !strStockFilter.trim().isEmpty()) ? strStockFilter.trim() : "";
             String __priceFrom = (strPriceFrom != null && !strPriceFrom.trim().isEmpty()) ? strPriceFrom.trim() : "";
             String __priceTo = (strPriceTo != null && !strPriceTo.trim().isEmpty()) ? strPriceTo.trim() : "";
             String __qtyFrom = (strQtyFrom != null && !strQtyFrom.trim().isEmpty()) ? strQtyFrom.trim() : "";
             String __qtyTo = (strQtyTo != null && !strQtyTo.trim().isEmpty()) ? strQtyTo.trim() : "";
             String __dotYears = (strDotYears != null && !strDotYears.trim().isEmpty()) ? strDotYears.trim() : "";
             boolean __onlyInStock = "1".equals(strIsStock);
+
+            // ============================================================
+            // Resolve warehouse/shelf filter EARLY เพื่อนำไปใส่ใน LATERAL JOIN
+            // และ inline SELECT subquery ให้ balance_qty คำนวณเฉพาะคลัง/ชั้นที่เลือก
+            // ============================================================
+            String resolvedShelfList = "";
+            if (!__shelfFrom.isEmpty() && !__shelfTo.isEmpty()) {
+                // ดึง shelf codes ระหว่าง from-to
+                Statement __stmtShelf = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+                ResultSet __shelfRs = __stmtShelf.executeQuery(
+                    "select string_agg(code,',') as code from ic_shelf where code between '" + __shelfFrom + "' and '" + __shelfTo + "'");
+                if (__shelfRs.next()) {
+                    resolvedShelfList = __shelfRs.getString("code");
+                    if (resolvedShelfList == null) resolvedShelfList = "";
+                }
+                __shelfRs.close();
+                __stmtShelf.close();
+            } else if (!__shelfFrom.isEmpty()) {
+                resolvedShelfList = __shelfFrom;
+            }
+
+            // สร้าง extra WHERE clause สำหรับ stock function ภายใน SELECT/LATERAL JOIN
+            // เพื่อให้ balance_qty_current_year/other_year คำนวณเฉพาะคลัง/ชั้นที่กรอง
+            StringBuilder __stkExtraWhere = new StringBuilder();
+            if (!__warehouse.isEmpty()) {
+                String[] whVals = __warehouse.split(",");
+                StringBuilder whIn = new StringBuilder();
+                for (String wh : whVals) {
+                    if (whIn.length() > 0) whIn.append("','");
+                    whIn.append(wh.trim());
+                }
+                __stkExtraWhere.append(" and stk_f.warehouse in ('" + whIn + "') ");
+            }
+            if (!resolvedShelfList.isEmpty()) {
+                String[] shelfVals = resolvedShelfList.split(",");
+                StringBuilder shelfIn = new StringBuilder();
+                for (String sh : shelfVals) {
+                    if (shelfIn.length() > 0) shelfIn.append("','");
+                    shelfIn.append(sh.trim());
+                }
+                __stkExtraWhere.append(" and stk_f.location in ('" + shelfIn + "') ");
+            }
+            String stkExtraWhere = __stkExtraWhere.toString();
 
             // ============================================================
             // ใช้ LATERAL JOIN เรียก sml_ic_function_stock_balance_warehouse_location
@@ -2379,28 +2420,25 @@ public class OrderOnlineService {
             if (needStockFunction) {
                 __strQuery.append("  coalesce(stk_agg.balance_qty_current_year, 0) as balance_qty_current_year, ");
                 __strQuery.append("  coalesce(stk_agg.balance_qty_other_year, 0) as balance_qty_other_year, ");
-                __strQuery.append("  coalesce(stk_agg.dot_year_list, '') as dot_year_list ");
-            } else {
-                __strQuery.append("  coalesce((select sum(case when left(stk0.location,2)='" + currentYearPfx + "' then stk0.balance_qty else 0 end) ");
-                __strQuery.append("    from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk0 where stk0.balance_qty>0), 0) as balance_qty_current_year, ");
-                __strQuery.append("  coalesce((select sum(case when left(stk0.location,2)!='" + currentYearPfx + "' then stk0.balance_qty else 0 end) ");
-                __strQuery.append("    from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk0 where stk0.balance_qty>0), 0) as balance_qty_other_year, ");
-                __strQuery.append("  coalesce((select string_agg(distinct left(stk0.location,2),',') ");
-                __strQuery.append("    from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk0 where stk0.balance_qty>0), '') as dot_year_list ");
+                __strQuery.append("  coalesce(stk_agg.dot_year_list, '') as dot_year_list ");            } else {
+                __strQuery.append("  coalesce((select sum(case when left(stk_f.location,2)='" + currentYearPfx + "' then stk_f.balance_qty else 0 end) ");
+                __strQuery.append("    from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk_f where stk_f.balance_qty>0" + stkExtraWhere + "), 0) as balance_qty_current_year, ");
+                __strQuery.append("  coalesce((select sum(case when left(stk_f.location,2)!='" + currentYearPfx + "' then stk_f.balance_qty else 0 end) ");
+                __strQuery.append("    from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk_f where stk_f.balance_qty>0" + stkExtraWhere + "), 0) as balance_qty_other_year, ");
+                __strQuery.append("  coalesce((select string_agg(distinct left(stk_f.location,2),',') ");
+                __strQuery.append("    from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk_f where stk_f.balance_qty>0" + stkExtraWhere + "), '') as dot_year_list ");
             }
             __strQuery.append("from ic_inventory left join "
-                    + " ic_inventory_detail on ic_inventory_detail.ic_code = ic_inventory.code ");
-
-            // LATERAL JOIN: เรียก function ครั้งเดียวต่อ item แล้ว aggregate
+                    + " ic_inventory_detail on ic_inventory_detail.ic_code = ic_inventory.code ");            // LATERAL JOIN: เรียก function ครั้งเดียวต่อ item แล้ว aggregate
             if (needStockFunction) {
                 __strQuery.append(" left join lateral ( ");
                 __strQuery.append("   select ");
-                __strQuery.append("     sum(case when left(stk_l.location,2)='" + currentYearPfx + "' then stk_l.balance_qty else 0 end) as balance_qty_current_year, ");
-                __strQuery.append("     sum(case when left(stk_l.location,2)!='" + currentYearPfx + "' then stk_l.balance_qty else 0 end) as balance_qty_other_year, ");
-                __strQuery.append("     sum(stk_l.balance_qty) as total_qty, ");
-                __strQuery.append("     string_agg(distinct left(stk_l.location,2), ',') as dot_year_list ");
-                __strQuery.append("   from sml_ic_function_stock_balance_warehouse_location(current_date, ic_inventory.code, '', '') stk_l ");
-                __strQuery.append("   where stk_l.balance_qty > 0 ");
+                __strQuery.append("     sum(case when left(stk_f.location,2)='" + currentYearPfx + "' then stk_f.balance_qty else 0 end) as balance_qty_current_year, ");
+                __strQuery.append("     sum(case when left(stk_f.location,2)!='" + currentYearPfx + "' then stk_f.balance_qty else 0 end) as balance_qty_other_year, ");
+                __strQuery.append("     sum(stk_f.balance_qty) as total_qty, ");
+                __strQuery.append("     string_agg(distinct left(stk_f.location,2), ',') as dot_year_list ");
+                __strQuery.append("   from sml_ic_function_stock_balance_warehouse_location(current_date, ic_inventory.code, '', '') stk_f ");
+                __strQuery.append("   where stk_f.balance_qty > 0 " + stkExtraWhere);
                 __strQuery.append(" ) stk_agg on true ");
             }
 
@@ -2503,81 +2541,43 @@ public class OrderOnlineService {
                     // sub query ยังใช้ correlated subquery เดิม
                     __strIcQuerySub.append(" and coalesce((select sum(stk_q.balance_qty) from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk_q where stk_q.balance_qty>0), 0) <= " + qtyToVal + " ");
                 } catch (NumberFormatException ignored) {}
-            }
-
-            // ---------- warehouse / shelf flag ----------
+            }            // ---------- warehouse / shelf filter ----------
+            // แทนที่จะดึง item_codes ทั้งหมดแล้วเรียก function กับ items ทั้งหมด (ช้ามาก)
+            // ใช้ WHERE EXISTS กับ stock function เฉพาะ warehouse/shelf ที่ต้องการ
+            // ให้ PostgreSQL short-circuit ได้เมื่อถึง LIMIT → เร็วขึ้นมาก
             if (!__warehouse.isEmpty()) {
+                // สร้าง warehouse IN clause สำหรับ EXISTS
+                String[] whVals = __warehouse.split(",");
+                StringBuilder whIn = new StringBuilder();
+                for (String wh : whVals) {
+                    if (whIn.length() > 0) whIn.append("','");
+                    whIn.append(wh.trim());
+                }
+                __strQuery.append(" and exists ( ");
+                __strQuery.append("   select 1 from sml_ic_function_stock_balance_warehouse_location(current_date, ic_inventory.code, '', '') stk_wh ");
+                __strQuery.append("   where stk_wh.balance_qty > 0 and stk_wh.warehouse in ('" + whIn + "') ");
+                __strQuery.append(" ) ");
+                flag = 1;
                 __strWarehouseQuerySub.append(__warehouse);
+            }            // resolvedShelfList ถูก resolve แล้วด้านบน — ใช้ EXISTS กรอง row เท่านั้น
+            if (!resolvedShelfList.isEmpty()) {
+                String[] shelfVals = resolvedShelfList.split(",");
+                StringBuilder shelfIn = new StringBuilder();
+                for (String sh : shelfVals) {
+                    if (shelfIn.length() > 0) shelfIn.append("','");
+                    shelfIn.append(sh.trim());
+                }
+                __strQuery.append(" and exists ( ");
+                __strQuery.append("   select 1 from sml_ic_function_stock_balance_warehouse_location(current_date, ic_inventory.code, '', '') stk_sh ");
+                __strQuery.append("   where stk_sh.balance_qty > 0 and stk_sh.location in ('" + shelfIn + "') ");
+                __strQuery.append(" ) ");
                 flag = 1;
             }
-            if (!__shelfFrom.isEmpty() && __shelfTo.isEmpty()) {
-                __strShelfQuerySub.append(__shelfFrom);
-                flag = 1;
-            } else if (!__shelfFrom.isEmpty() && !__shelfTo.isEmpty()) {
-                __strShelfQuerySub.append("select string_agg(code,',') as code from ic_shelf where code between '")
-                        .append(__shelfFrom).append("' and '").append(__shelfTo).append("'");
-                flag = 2;
-            }
 
-            if (flag == 2) {
-                Statement __stmtShelf = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
-                ResultSet __shelfList = __stmtShelf.executeQuery(__strShelfQuerySub.toString());
-                __strShelfQuerySub = new StringBuilder();
-                while (__shelfList.next()) {
-                    __strShelfQuerySub.append(__shelfList.getString("code"));
-                }
-                __shelfList.close();
-                __stmtShelf.close();
-            }
-
-            if (flag != 0) {
-                Statement __stmtIc = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
-                ResultSet __icList = __stmtIc.executeQuery(__strIcQuerySub.toString());
-                __strIcQuerySub = new StringBuilder();
-                while (__icList.next()) {
-                    __strIcQuerySub.append(__icList.getString("code"));
-                }
-                __icList.close();
-                __stmtIc.close();
-
-                __strQuery = new StringBuilder();
-                __strQuery.append("select ");
-                __strQuery.append("  stk.ic_code      as item_code, ");
-                __strQuery.append("  stk.ic_name      as item_name, ");
-                __strQuery.append("  stk.ic_unit_code as unit_code, ");
-                __strQuery.append("  '@shelf_code@' as shelf_list, ");
-                __strQuery.append("  '@wh_code@'    as warehouse_list, ");
-                __strQuery.append("  sum(stk.balance_qty) as balance_qty, ");
-                __strQuery.append("  coalesce((select pf.price_0 from ic_inventory_price_formula pf ");
-                __strQuery.append("    where pf.ic_code = stk.ic_code and pf.unit_code = stk.ic_unit_code ");
-                __strQuery.append("    and pf.sale_type = 2 limit 1), '0') as price_0, ");
-                __strQuery.append("  coalesce((select pf.price_9 from ic_inventory_price_formula pf ");
-                __strQuery.append("    where pf.ic_code = stk.ic_code and pf.unit_code = stk.ic_unit_code ");
-                __strQuery.append("    and pf.sale_type = 2 limit 1), '0') as price_9, ");
-                __strQuery.append("  coalesce((select d.description from ic_description d ");
-                __strQuery.append("    where d.ic_code = stk.ic_code limit 1), '') as description ");
-                __strQuery.append("from sml_ic_function_stock_balance_warehouse_location(current_date, '@ic_code@', '@wh_code@', '@shelf_code@') as stk ");
-                __strQuery.append("where stk.balance_qty > 0 ");
-                __strQuery.append("group by stk.ic_code, stk.ic_name, stk.ic_unit_code ");
-
-                __strQuery = new StringBuilder(
-                        __strQuery.toString()
-                                .replace("@ic_code@", __strIcQuerySub.toString())
-                                .replace("@wh_code@", __strWarehouseQuerySub.toString())
-                                .replace("@shelf_code@", __strShelfQuerySub.toString())
-                );
-
-                if (__sortCol.isEmpty()) {
-                    __strQuery.append(" order by stk.ic_code ").append(__sort).append(" ");
-                } else {
-                    __strQuery.append(" order by ").append(__sortCol).append(" ").append(__sort).append(" ");
-                }
+            if (__sortCol.isEmpty()) {
+                __strQuery.append(" order by ic_inventory.code ").append(__sort).append(" ");
             } else {
-                if (__sortCol.isEmpty()) {
-                    __strQuery.append(" order by ic_inventory.code ").append(__sort).append(" ");
-                } else {
-                    __strQuery.append(" order by ").append(__sortCol).append(" ").append(__sort).append(" ");
-                }
+                __strQuery.append(" order by ").append(__sortCol).append(" ").append(__sort).append(" ");
             }
 
             // ---------- execute data (LIMIT+1 to detect hasNext, no count query) ----------
@@ -2599,29 +2599,28 @@ public class OrderOnlineService {
                 obj.put("warehouse_list", __rsData.getString("warehouse_list"));
                 obj.put("price_0", __rsData.getString("price_0"));
                 obj.put("price_9", __rsData.getString("price_9"));
-                obj.put("description", __rsData.getString("description"));
-                obj.put("price", "");
+                obj.put("description", __rsData.getString("description"));                obj.put("price", "");
                 obj.put("update_date", "");
-                if (flag != 0) {
-                    String __balQty = "";
-                    try { __balQty = __rsData.getString("balance_qty"); } catch (Exception ignored) {}
-                    obj.put("balance_qty", __balQty);
-                    obj.put("balance_qty_current_year", __balQty);
-                    obj.put("balance_qty_other_year", "0");
-                    obj.put("dot_year_list", "");
-                    obj.put("year_weak", "");
-                } else {
+                // ตอนนี้ทุก path ใช้ query จาก ic_inventory เหมือนกัน
+                // ดึง balance_qty_current_year, balance_qty_other_year, dot_year_list
+                {
                     String bqCur = "", bqOth = "", dotYearList = "";
                     try { bqCur = __rsData.getString("balance_qty_current_year"); } catch (Exception ignored) {}
                     try { bqOth = __rsData.getString("balance_qty_other_year"); } catch (Exception ignored) {}
                     try { dotYearList = __rsData.getString("dot_year_list"); } catch (Exception ignored) {}
-                    double cur = bqCur != null ? Double.parseDouble(bqCur) : 0;
-                    double oth = bqOth != null ? Double.parseDouble(bqOth) : 0;
+                    double cur = 0, oth = 0;
+                    try { cur = (bqCur != null && !bqCur.isEmpty()) ? Double.parseDouble(bqCur.replace(",","")) : 0; } catch (Exception ignored) {}
+                    try { oth = (bqOth != null && !bqOth.isEmpty()) ? Double.parseDouble(bqOth.replace(",","")) : 0; } catch (Exception ignored) {}
                     obj.put("balance_qty_current_year", String.format("%,.0f", cur));
                     obj.put("balance_qty_other_year", String.format("%,.0f", oth));
                     obj.put("balance_qty", String.format("%,.0f", cur + oth));
                     obj.put("dot_year_list", dotYearList != null ? dotYearList : "");
                     obj.put("year_weak", "");
+                    // เก็บ warehouse_list / shelf_list ไว้สำหรับ expand detail
+                    if (flag != 0) {
+                        obj.put("shelf_list", resolvedShelfList);
+                        obj.put("warehouse_list", __warehouse);
+                    }
                 }
                 __jsonArr.put(obj);
             }
