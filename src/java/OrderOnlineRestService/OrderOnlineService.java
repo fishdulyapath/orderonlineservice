@@ -3661,22 +3661,7 @@ public class OrderOnlineService {
                 String whCode = __rsData.getString("warehouse");
                 String locationCode = __rsData.getString("location");
 
-                // ---------- subquery overdue per row ----------
-                String __strQuery2
-                        = "select item_code, "
-                        + "  coalesce(("
-                        + "    select balance_qty "
-                        + "    from sml_ic_function_stock_balance_warehouse_location(current_date, '" + __strItemCode + "', '" + whCode + "', '" + locationCode + "') "
-                        + "    where item_code = ic_code"
-                        + "  ), 0) as overdue "
-                        + "from ic_trans_detail "
-                        + "where item_code  = '" + __strItemCode + "' "
-                        + "  and wh_code    = '" + whCode + "' "
-                        + "  and shelf_code = '" + locationCode + "' "
-                        + "limit 1";
 
-                Statement __stmtSub = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
-                ResultSet __rsSub = __stmtSub.executeQuery(__strQuery2);
 
                 JSONObject obj = new JSONObject();
                 obj.put("item_code", __rsData.getString("item_code"));
@@ -3687,11 +3672,6 @@ public class OrderOnlineService {
                 obj.put("location", locationCode);
                 obj.put("overdue", "0");
 
-                if (__rsSub.next()) {
-                    obj.put("overdue", __rsSub.getString("overdue"));
-                }
-                __rsSub.close();
-                __stmtSub.close();
 
                 __jsonArr.put(obj);
             }
