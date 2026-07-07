@@ -2183,14 +2183,14 @@ public class OrderOnlineService {
                     + " from ic_inventory b "
                     + " left join ic_inventory_detail c on b.code=c.ic_code "
                     + " left join ar_item_by_customer arc on arc.ic_code = b.code and arc.ar_code='" + strCustCode + "' "
-                    + " where b.item_pattern='[W]' " + _whereFinal + " ";
+                    + " where 1=1 " + _whereFinal + " ";
 
             String __strQUERYCount
                     = "select count(b.code) as xcount "
                     + " from ic_inventory b "
                     + " left join ic_inventory_detail c on b.code=c.ic_code "
                     + " left join ar_item_by_customer arc on arc.ic_code = b.code and arc.ar_code='" + strCustCode + "' "
-                    + " where b.item_pattern='[W]' " + _whereFinal + " ";
+                    + " where 1=1 " + _whereFinal + " ";
 
             Statement __stmt1;
             ResultSet __rs1;
