@@ -2177,7 +2177,7 @@ public class OrderOnlineService {
             }
 
             String __strQUERY1
-                    = "select b.code as item_code, b.name_1 as item_name, b.unit_cost,b.group_main, "
+                    = "select b.code as item_code, b.name_1 as item_name, b.unit_cost,b.group_main,coalesce((select price_0 from ic_inventory_price_formula where ic_code =  b.code and unit_code =  b.unit_cost  and sale_type = 0 and tax_type = 0  order by create_date_time_now desc limit 1),'0') as price, "
                     + " (case when (" + stockQtyExpr + ") <= ROUND(coalesce(c.minimum_qty,0)) then '1' else '0' end) as sold_out, "
                     + " coalesce(arc.status,0) as favorite_item "
                     + " from ic_inventory b "
@@ -2194,7 +2194,7 @@ public class OrderOnlineService {
 
             Statement __stmt1;
             ResultSet __rs1;
-            // System.out.println(__strQUERY1);
+            System.out.println(__strQUERY1);
             __stmt1 = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
             __rs1 = __stmt1.executeQuery(__strQUERY1 + " offset " + strOffset + " limit " + strLimit);
 
@@ -2207,6 +2207,7 @@ public class OrderOnlineService {
                 obj.put("item_code", __rs1.getString("item_code"));
                 obj.put("item_name", __rs1.getString("item_name"));
                 obj.put("group_main", __rs1.getString("group_main"));
+                obj.put("price", __rs1.getString("price"));
                 obj.put("sold_out", __rs1.getString("sold_out"));
                 obj.put("favorite_item", __rs1.getString("favorite_item"));
                 __jsonArr.put(obj);
@@ -2338,7 +2339,8 @@ public class OrderOnlineService {
 
             __strIcQuerySub.append("select string_agg(ic_inventory.code,',') as code from ic_inventory left join ic_inventory_detail on ic_inventory_detail.ic_code = ic_inventory.code where 1=1 ");
 
-            String currentYearPfx = String.valueOf(java.time.Year.now().getValue()).substring(2, 4);            String __stockFilter = (strStockFilter != null && !strStockFilter.trim().isEmpty()) ? strStockFilter.trim() : "";
+            String currentYearPfx = String.valueOf(java.time.Year.now().getValue()).substring(2, 4);
+            String __stockFilter = (strStockFilter != null && !strStockFilter.trim().isEmpty()) ? strStockFilter.trim() : "";
             String __priceFrom = (strPriceFrom != null && !strPriceFrom.trim().isEmpty()) ? strPriceFrom.trim() : "";
             String __priceTo = (strPriceTo != null && !strPriceTo.trim().isEmpty()) ? strPriceTo.trim() : "";
             String __qtyFrom = (strQtyFrom != null && !strQtyFrom.trim().isEmpty()) ? strQtyFrom.trim() : "";
@@ -2355,10 +2357,12 @@ public class OrderOnlineService {
                 // ดึง shelf codes ระหว่าง from-to
                 Statement __stmtShelf = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
                 ResultSet __shelfRs = __stmtShelf.executeQuery(
-                    "select string_agg(code,',') as code from ic_shelf where code between '" + __shelfFrom + "' and '" + __shelfTo + "'");
+                        "select string_agg(code,',') as code from ic_shelf where code between '" + __shelfFrom + "' and '" + __shelfTo + "'");
                 if (__shelfRs.next()) {
                     resolvedShelfList = __shelfRs.getString("code");
-                    if (resolvedShelfList == null) resolvedShelfList = "";
+                    if (resolvedShelfList == null) {
+                        resolvedShelfList = "";
+                    }
                 }
                 __shelfRs.close();
                 __stmtShelf.close();
@@ -2373,7 +2377,9 @@ public class OrderOnlineService {
                 String[] whVals = __warehouse.split(",");
                 StringBuilder whIn = new StringBuilder();
                 for (String wh : whVals) {
-                    if (whIn.length() > 0) whIn.append("','");
+                    if (whIn.length() > 0) {
+                        whIn.append("','");
+                    }
                     whIn.append(wh.trim());
                 }
                 __stkExtraWhere.append(" and stk_f.warehouse in ('" + whIn + "') ");
@@ -2382,7 +2388,9 @@ public class OrderOnlineService {
                 String[] shelfVals = resolvedShelfList.split(",");
                 StringBuilder shelfIn = new StringBuilder();
                 for (String sh : shelfVals) {
-                    if (shelfIn.length() > 0) shelfIn.append("','");
+                    if (shelfIn.length() > 0) {
+                        shelfIn.append("','");
+                    }
                     shelfIn.append(sh.trim());
                 }
                 __stkExtraWhere.append(" and stk_f.location in ('" + shelfIn + "') ");
@@ -2420,7 +2428,8 @@ public class OrderOnlineService {
             if (needStockFunction) {
                 __strQuery.append("  coalesce(stk_agg.balance_qty_current_year, 0) as balance_qty_current_year, ");
                 __strQuery.append("  coalesce(stk_agg.balance_qty_other_year, 0) as balance_qty_other_year, ");
-                __strQuery.append("  coalesce(stk_agg.dot_year_list, '') as dot_year_list ");            } else {
+                __strQuery.append("  coalesce(stk_agg.dot_year_list, '') as dot_year_list ");
+            } else {
                 __strQuery.append("  coalesce((select sum(case when left(stk_f.location,2)='" + currentYearPfx + "' then stk_f.balance_qty else 0 end) ");
                 __strQuery.append("    from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk_f where stk_f.balance_qty>0" + stkExtraWhere + "), 0) as balance_qty_current_year, ");
                 __strQuery.append("  coalesce((select sum(case when left(stk_f.location,2)!='" + currentYearPfx + "' then stk_f.balance_qty else 0 end) ");
@@ -2512,7 +2521,9 @@ public class OrderOnlineService {
                 StringBuilder dotIn = new StringBuilder();
                 for (String yr : yrs) {
                     String yy = yr.trim().length() == 4 ? yr.trim().substring(2) : yr.trim();
-                    if (dotIn.length() > 0) dotIn.append("','");
+                    if (dotIn.length() > 0) {
+                        dotIn.append("','");
+                    }
                     dotIn.append(yy);
                 }
                 // ใช้ dot_year_list จาก LATERAL JOIN แทน เรียก function ซ้ำ
@@ -2531,7 +2542,8 @@ public class OrderOnlineService {
                     __strQuery.append(" and coalesce(stk_agg.total_qty, 0) >= " + qtyFromVal + " ");
                     // sub query ยังใช้ correlated subquery เดิม
                     __strIcQuerySub.append(" and coalesce((select sum(stk_q.balance_qty) from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk_q where stk_q.balance_qty>0), 0) >= " + qtyFromVal + " ");
-                } catch (NumberFormatException ignored) {}
+                } catch (NumberFormatException ignored) {
+                }
             }
             if (!__qtyTo.isEmpty()) {
                 try {
@@ -2540,7 +2552,8 @@ public class OrderOnlineService {
                     __strQuery.append(" and coalesce(stk_agg.total_qty, 0) <= " + qtyToVal + " ");
                     // sub query ยังใช้ correlated subquery เดิม
                     __strIcQuerySub.append(" and coalesce((select sum(stk_q.balance_qty) from sml_ic_function_stock_balance_warehouse_location(current_date,ic_inventory.code,'','') stk_q where stk_q.balance_qty>0), 0) <= " + qtyToVal + " ");
-                } catch (NumberFormatException ignored) {}
+                } catch (NumberFormatException ignored) {
+                }
             }            // ---------- warehouse / shelf filter ----------
             // แทนที่จะดึง item_codes ทั้งหมดแล้วเรียก function กับ items ทั้งหมด (ช้ามาก)
             // ใช้ WHERE EXISTS กับ stock function เฉพาะ warehouse/shelf ที่ต้องการ
@@ -2550,7 +2563,9 @@ public class OrderOnlineService {
                 String[] whVals = __warehouse.split(",");
                 StringBuilder whIn = new StringBuilder();
                 for (String wh : whVals) {
-                    if (whIn.length() > 0) whIn.append("','");
+                    if (whIn.length() > 0) {
+                        whIn.append("','");
+                    }
                     whIn.append(wh.trim());
                 }
                 __strQuery.append(" and exists ( ");
@@ -2564,7 +2579,9 @@ public class OrderOnlineService {
                 String[] shelfVals = resolvedShelfList.split(",");
                 StringBuilder shelfIn = new StringBuilder();
                 for (String sh : shelfVals) {
-                    if (shelfIn.length() > 0) shelfIn.append("','");
+                    if (shelfIn.length() > 0) {
+                        shelfIn.append("','");
+                    }
                     shelfIn.append(sh.trim());
                 }
                 __strQuery.append(" and exists ( ");
@@ -2590,7 +2607,9 @@ public class OrderOnlineService {
             int __rowCount = 0;
             while (__rsData.next()) {
                 __rowCount++;
-                if (__rowCount > intLimit) break; // row ที่ limit+1 = มีหน้าต่อไป ไม่ต้อง add
+                if (__rowCount > intLimit) {
+                    break; // row ที่ limit+1 = มีหน้าต่อไป ไม่ต้อง add
+                }
                 JSONObject obj = new JSONObject();
                 obj.put("item_code", __rsData.getString("item_code"));
                 obj.put("item_name", __rsData.getString("item_name"));
@@ -2599,19 +2618,34 @@ public class OrderOnlineService {
                 obj.put("warehouse_list", __rsData.getString("warehouse_list"));
                 obj.put("price_0", __rsData.getString("price_0"));
                 obj.put("price_9", __rsData.getString("price_8"));
-                obj.put("description", __rsData.getString("description"));                
+                obj.put("description", __rsData.getString("description"));
                 obj.put("price", "");
                 obj.put("update_date", "");
                 // ตอนนี้ทุก path ใช้ query จาก ic_inventory เหมือนกัน
                 // ดึง balance_qty_current_year, balance_qty_other_year, dot_year_list
                 {
                     String bqCur = "", bqOth = "", dotYearList = "";
-                    try { bqCur = __rsData.getString("balance_qty_current_year"); } catch (Exception ignored) {}
-                    try { bqOth = __rsData.getString("balance_qty_other_year"); } catch (Exception ignored) {}
-                    try { dotYearList = __rsData.getString("dot_year_list"); } catch (Exception ignored) {}
+                    try {
+                        bqCur = __rsData.getString("balance_qty_current_year");
+                    } catch (Exception ignored) {
+                    }
+                    try {
+                        bqOth = __rsData.getString("balance_qty_other_year");
+                    } catch (Exception ignored) {
+                    }
+                    try {
+                        dotYearList = __rsData.getString("dot_year_list");
+                    } catch (Exception ignored) {
+                    }
                     double cur = 0, oth = 0;
-                    try { cur = (bqCur != null && !bqCur.isEmpty()) ? Double.parseDouble(bqCur.replace(",","")) : 0; } catch (Exception ignored) {}
-                    try { oth = (bqOth != null && !bqOth.isEmpty()) ? Double.parseDouble(bqOth.replace(",","")) : 0; } catch (Exception ignored) {}
+                    try {
+                        cur = (bqCur != null && !bqCur.isEmpty()) ? Double.parseDouble(bqCur.replace(",", "")) : 0;
+                    } catch (Exception ignored) {
+                    }
+                    try {
+                        oth = (bqOth != null && !bqOth.isEmpty()) ? Double.parseDouble(bqOth.replace(",", "")) : 0;
+                    } catch (Exception ignored) {
+                    }
                     obj.put("balance_qty_current_year", String.format("%,.0f", cur));
                     obj.put("balance_qty_other_year", String.format("%,.0f", oth));
                     obj.put("balance_qty", String.format("%,.0f", cur + oth));
@@ -3662,8 +3696,6 @@ public class OrderOnlineService {
                 String whCode = __rsData.getString("warehouse");
                 String locationCode = __rsData.getString("location");
 
-
-
                 JSONObject obj = new JSONObject();
                 obj.put("item_code", __rsData.getString("item_code"));
                 obj.put("item_name", __rsData.getString("item_name"));
@@ -3672,7 +3704,6 @@ public class OrderOnlineService {
                 obj.put("warehouse", whCode);
                 obj.put("location", locationCode);
                 obj.put("overdue", "0");
-
 
                 __jsonArr.put(obj);
             }
