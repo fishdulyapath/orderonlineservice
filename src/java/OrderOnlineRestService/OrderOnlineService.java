@@ -3927,7 +3927,7 @@ public class OrderOnlineService {
                     String __strQUERYPrice = "SELECT "
                             + "  ic_code,unit_code, "
                             + "  CASE (RIGHT(EXTRACT(YEAR FROM NOW())::int::text, 2)::int - '" + year + "'::int) "
-                            + "    WHEN 0 THEN '0' "
+                            + "    WHEN 0 THEN coalesce(price_0,'0') "
                             + "    WHEN 1 THEN coalesce(price_1,'0')  "
                             + "    WHEN 2 THEN coalesce(price_2,'0') "
                             + "    WHEN 3 THEN coalesce(price_3,'0') "
@@ -3948,20 +3948,20 @@ public class OrderOnlineService {
                     __stmtPrice.close();
                 }
 
-                if (obj.get("price").toString().equals("0")) {
-
-                    JSONObject prices = getProductPriceLocal(__rs1.getString("ic_code"), __rs1.getString("unit_code"), "1", strCustCode, strSaleType);
-                    System.out.println("__rs1.getString " + __rs1.getString("ic_code") + " unit " + __rs1.getString("unit_code") + "cust " + strCustCode + " saletype = " + strSaleType);
-                    System.out.println(prices.toString());
-                    JSONArray pricesArr = prices.optJSONArray("data");
-                    if (pricesArr != null && pricesArr.length() > 0) {
-                        JSONObject priceObj = pricesArr.optJSONObject(0);
-                        obj.put("price", priceObj != null ? priceObj.optString("price", "0") : "0");
-                    } else {
-                        obj.put("price", "0");
-                    }
-
-                }
+//                if (obj.get("price").toString().equals("0")) {
+//
+//                    JSONObject prices = getProductPriceLocal(__rs1.getString("ic_code"), __rs1.getString("unit_code"), "1", strCustCode, strSaleType);
+//                    System.out.println("__rs1.getString " + __rs1.getString("ic_code") + " unit " + __rs1.getString("unit_code") + "cust " + strCustCode + " saletype = " + strSaleType);
+//                    System.out.println(prices.toString());
+//                    JSONArray pricesArr = prices.optJSONArray("data");
+//                    if (pricesArr != null && pricesArr.length() > 0) {
+//                        JSONObject priceObj = pricesArr.optJSONObject(0);
+//                        obj.put("price", priceObj != null ? priceObj.optString("price", "0") : "0");
+//                    } else {
+//                        obj.put("price", "0");
+//                    }
+//
+//                }
 
                 __jsonArr.put(obj);
 
