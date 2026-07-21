@@ -2763,6 +2763,120 @@ public class OrderOnlineService {
     }
 
     // ============================================================
+    // getBalanceReceivableBatch — lazy load ยอดค้างรับ (acc_in_balance) สำหรับ item_codes batch
+    // ============================================================
+    @GET
+    @Path("/getBalanceReceivableBatch")
+    public Response getBalanceReceivableBatch(
+            @QueryParam("item_codes") String strItemCodes,
+            @QueryParam("cust_code") String strCustCode
+    ) {
+        String strProvider = "DATA";
+        String strDatabaseName = "data2";
+        JSONObject __objResponse = new JSONObject();
+        __objResponse.put("success", false);
+
+        Connection __conn = null;
+        try {
+            _routine __routine = new _routine();
+            __conn = __routine._connect(strDatabaseName, _global.FILE_CONFIG(strProvider));
+
+            String itemCodes = (strItemCodes != null && !strItemCodes.trim().isEmpty()) ? strItemCodes.trim() : "";
+            String custCode = (strCustCode != null && !strCustCode.trim().isEmpty()) ? strCustCode.trim() : "";
+
+            if (itemCodes.isEmpty()) {
+                __objResponse.put("success", true);
+                __objResponse.put("data", new JSONArray());
+                return Response.ok(String.valueOf(__objResponse), MediaType.APPLICATION_JSON).build();
+            }
+
+            String[] rawCodes = itemCodes.split(",");
+            StringBuilder inClause = new StringBuilder();
+            for (String rawCode : rawCodes) {
+                String code = rawCode.trim().replace("'", "''");
+                if (code.isEmpty()) {
+                    continue;
+                }
+                if (inClause.length() > 0) {
+                    inClause.append(",");
+                }
+                inClause.append("'").append(code).append("'");
+            }
+            if (inClause.length() == 0) {
+                __objResponse.put("success", true);
+                __objResponse.put("data", new JSONArray());
+                return Response.ok(String.valueOf(__objResponse), MediaType.APPLICATION_JSON).build();
+            }
+
+            String qry = "SELECT item_code, SUM(acc_in_balance) AS acc_in_balance "
+                    + "FROM ( "
+                    + "  SELECT doc_no, cust_code, item_code, item_name, unit_code, acc_in_balance "
+                    + "  FROM ( "
+                    + "    SELECT doc_no, cust_code, item_code, item_name, unit_code, "
+                    + "      qty - COALESCE(( "
+                    + "        SELECT SUM(qty * COALESCE(stand_value / NULLIF(divide_value, 0), 1)) "
+                    + "        FROM ic_trans_detail "
+                    + "        WHERE ( "
+                    + "          trans_flag IN (12, 310) "
+                    + "          OR ( "
+                    + "            ic_trans_detail.trans_flag = 7 "
+                    + "            AND ( "
+                    + "              SELECT cancel_type "
+                    + "              FROM ic_trans "
+                    + "              WHERE ic_trans.doc_no = ic_trans_detail.doc_no "
+                    + "                AND ic_trans_detail.trans_flag = ic_trans.trans_flag "
+                    + "            ) = 2 "
+                    + "          ) "
+                    + "        ) "
+                    + "          AND COALESCE(last_status, 0) = 0 "
+                    + "          AND ic_trans_detail.ref_doc_no = temp1.doc_no "
+                    + "          AND ic_trans_detail.item_code = temp1.item_code "
+                    + "      ), 0) AS acc_in_balance "
+                    + "    FROM ( "
+                    + "      SELECT doc_no, cust_code, item_code, item_name, unit_code, "
+                    + "        SUM(qty * COALESCE(stand_value / NULLIF(divide_value, 0), 1)) AS qty "
+                    + "      FROM ic_trans_detail "
+                    + "      WHERE trans_flag = 6 "
+                    + "        AND COALESCE(last_status, 0) = 0 "
+                    + "      GROUP BY doc_no, cust_code, item_code, item_name, unit_code "
+                    + "    ) AS temp1 "
+                    + "  ) AS temp2 "
+                    + "  WHERE acc_in_balance <> 0 "
+                    + "    AND item_code IN (" + inClause.toString() + ") "
+//                    + (custCode.isEmpty() ? "" : "    AND cust_code = '" + custCode.replace("'", "''") + "' ")
+                    + ") AS temp3 "
+                    + "GROUP BY item_code";
+            System.out.println(qry);
+            Statement stmt = __conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+            ResultSet rs = stmt.executeQuery(qry);
+
+            JSONArray __jsonArr = new JSONArray();
+            while (rs.next()) {
+                JSONObject obj = new JSONObject();
+                obj.put("item_code", rs.getString("item_code"));
+                obj.put("acc_in_balance", rs.getString("acc_in_balance"));
+                __jsonArr.put(obj);
+            }
+            rs.close();
+            stmt.close();
+
+            __objResponse.put("success", true);
+            __objResponse.put("data", __jsonArr);
+
+        } catch (Exception ex) {
+            return Response.status(400).entity("{\"error\": \"" + ex.getMessage() + "\"}").build();
+        } finally {
+            if (__conn != null) {
+                try {
+                    __conn.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return Response.ok(String.valueOf(__objResponse), MediaType.APPLICATION_JSON).build();
+    }
+
+    // ============================================================
     // getBalanceItemPriceBatch — lazy load ราคา+stock สำหรับ item_codes batch
     // ============================================================
     @GET
